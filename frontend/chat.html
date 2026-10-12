@@ -4,141 +4,172 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>作文老师</title>
-<link rel="icon" href="https://unpkg.com/lucide-static@latest/icons/pen-line.svg" type="image/svg+xml">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="/vendor/vue.global.prod.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600&display=swap" rel="stylesheet">
 <script src="/vendor/lucide.min.js"></script>
 <style>
-  body { font-family: 'PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei UI',system-ui,sans-serif; background: var(--bg); letter-spacing: .01em; }
-  .serif { font-family: 'Noto Serif SC', 'Songti SC', serif; }
-  :root {
-    --bg: #F8F9FA;
-    --ink: #1A1D21;
-    --ink-soft: #737A84;
-    --ink-faint: #9AA1AB;
-    --line: #E4E7EB;
-    --accent: #1A1D21;
-    --accent-soft: #EDEFF2;
-    --bubble: #EDEFF2;
-    --card: #FFFFFF;
-  }
-  .msg-in { animation: rise .4s cubic-bezier(.22,1,.36,1) both; }
-  @keyframes rise { from { opacity:0; transform:translateY(10px);} to { opacity:1; transform:none;} }
-  .fade-in { animation: fade .6s ease both; }
-  @keyframes fade { from { opacity:0; } to { opacity:1; } }
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  textarea:focus { outline: none; }
-</style></head>
+:root { --bg:#F8F9FA; --ink:#1A1D21; --ink-soft:#737A84; --ink-faint:#9AA1AB; --line:#E4E7EB; --accent:#1A1D21; --accent-soft:#EDEFF2; --bubble:#EDEFF2; --card:#FFF; --link:#3D6FA8; }
+body { font-family:'PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei UI',system-ui,sans-serif; background:var(--bg); letter-spacing:.01em; }
+.serif { font-family:'Noto Serif SC','Songti SC',serif; }
+.msg-in { animation:rise .45s cubic-bezier(.22,1,.36,1) both; }
+@keyframes rise { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:none} }
+.fade-in { animation:fade .5s ease both; }
+@keyframes fade { from{opacity:0} to{opacity:1} }
+.pulse-dot { animation:pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:.3;transform:scale(.85)} 50%{opacity:1;transform:scale(1)} }
+.typing-line { animation:typeIn .4s ease-out; }
+@keyframes typeIn { from{opacity:0;transform:translateX(-6px)} to{opacity:1;transform:none} }
+::-webkit-scrollbar { width:5px; }
+::-webkit-scrollbar-thumb { background:var(--line); border-radius:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+textarea:focus { outline:none; }
+.prose-reply { line-height:1.85; }
+.prose-reply p { margin:.5em 0; }
+.prose-reply strong { font-weight:600; }
+.prose-reply ul, .prose-reply ol { padding-left:1.4em; margin:.4em 0; }
+.prose-reply li { margin:.2em 0; }
+.prose-reply h1,.prose-reply h2,.prose-reply h3 { font-weight:600; margin:.8em 0 .3em; }
+.prose-reply h1{font-size:1.2em}.prose-reply h2{font-size:1.1em}.prose-reply h3{font-size:1.05em}
+.prose-reply blockquote { border-left:3px solid var(--line); padding-left:.8em; margin:.6em 0; color:var(--ink-soft); }
+.prose-reply code { background:var(--accent-soft); padding:.15em .35em; border-radius:4px; font-size:.88em; }
+.prose-reply pre { background:var(--accent-soft); padding:.8em; border-radius:8px; overflow-x:auto; margin:.6em 0; }
+.prose-reply pre code { background:none; padding:0; }
+.copy-btn { opacity:0; transition:opacity .15s; }
+.msg-row:hover .copy-btn { opacity:1; }
+</style>
+</head>
 <body class="h-full overflow-hidden text-[var(--ink)] antialiased">
 <div id="app" class="h-full flex flex-col">
 
-  <header class="shrink-0 sticky top-0 z-20 border-b border-[var(--line)]/60 bg-[var(--bg)]/80 backdrop-blur-md">
-    <div class="mx-auto w-full max-w-2xl px-6 py-3.5 flex items-center justify-between">
-      <div class="flex items-baseline gap-2.5 fade-in">
-        <span class="serif text-[22px] font-semibold tracking-[.04em] text-[var(--ink)]">作文老师</span>
-        <span class="text-xs text-[var(--ink-soft)]">一位愿意陪你改文章的人</span>
-      </div>
-      <button @click="reset"
-        class="inline-flex items-center gap-1.5 rounded-full border border-transparent px-3 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)] hover:shadow-sm">
-        <i data-lucide="plus" class="h-3.5 w-3.5"></i>新对话
+<header class="shrink-0 sticky top-0 z-20 border-b border-[var(--line)]/60 bg-[var(--bg)]/85 backdrop-blur-sm">
+  <div class="mx-auto w-full max-w-2xl px-6 py-3 flex items-center justify-between">
+    <div class="flex items-baseline gap-2.5 fade-in">
+      <span class="serif text-[20px] font-semibold tracking-[.03em] text-[var(--ink)]">作文老师</span>
+      <span class="hidden sm:inline text-xs text-[var(--ink-faint)]">一位愿意陪你改文章的人</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span v-if="messages.length > 2" class="hidden sm:inline text-[11px] text-[var(--ink-faint)]">{{ Math.ceil(messages.length/2) }} 轮对话</span>
+      <button @click="reset" class="inline-flex items-center gap-1.5 rounded-full border border-transparent px-3 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)] hover:shadow-sm">
+        <i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>新对话
       </button>
     </div>
-  </header>
+  </div>
+</header>
 
-  <main ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto w-full max-w-2xl px-6 pb-6 flex flex-col gap-7">
+<main ref="scroller" class="min-h-0 flex-1 overflow-y-auto" @scroll="onScroll">
+  <div class="mx-auto w-full max-w-2xl px-6 pb-6 flex flex-col gap-6">
 
-      <section v-if="messages.length === 0" class="fade-in flex min-h-[60vh] flex-col justify-center gap-10 py-12">
-        <div>
-          <p class="mb-4 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[.18em] text-[var(--ink-faint)]">
-            <span class="h-px w-6 bg-[var(--ink-faint)]"></span>作文辅导
-          </p>
-          <h1 class="serif text-3xl font-semibold leading-relaxed tracking-wide text-[var(--ink)] sm:text-4xl">
-            文章是改出来的。<br>
-            <span class="text-[var(--accent)]">交给我，我们慢慢来。</span>
-          </h1>
-          <p class="mt-5 max-w-md text-sm leading-8 text-[var(--ink-soft)]">
-            你可以发一段作文、一个题目，或者只是聊聊不知道怎么写。我会像老师批作业那样，一段一段读，一处一处说。
-          </p>
-        </div>
-        <div class="flex flex-col gap-3">
-          <button v-for="(s, si) in suggestions" :key="s.text" @click="send(s.text)"
-            class="group flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--card)] px-5 py-4 text-left transition duration-200 hover:border-[#B9C0CA] hover:shadow-[0_4px_18px_rgba(20,24,30,.07)] active:scale-[.99]">
-            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-semibold text-[var(--ink-soft)] transition group-hover:bg-[var(--ink)] group-hover:text-[var(--card)]">{{ si + 1 }}</span>
-            <span class="min-w-0">
-              <span class="block text-sm font-medium text-[var(--ink)]">{{ s.text }}</span>
-              <span class="mt-0.5 block text-xs text-[var(--ink-faint)]">{{ s.desc }}</span>
-            </span>
-            <i data-lucide="arrow-right" class="ml-auto h-4 w-4 shrink-0 text-[var(--line)] transition duration-200 group-hover:translate-x-1 group-hover:text-[var(--ink)]"></i>
-          </button>
-        </div>
-      </section>
+    <section v-if="messages.length === 0" class="fade-in flex min-h-[55vh] flex-col justify-center py-10">
+      <div>
+        <p class="mb-1 text-sm text-[var(--ink-soft)]">你好，我是叁月聚粮。</p>
+        <h1 class="serif text-3xl font-semibold leading-relaxed tracking-wide sm:text-[2.1rem] text-[var(--ink)] mt-1">
+          文章是改出来的。<br>交给我，我们慢慢来。
+        </h1>
+        <p class="mt-4 max-w-md text-sm leading-7 text-[var(--ink-soft)]">
+          发一段你想改的作文、一个题目，或者只是说"我不知道怎么写"。我会像批作业一样，一段一段读，一处一处说。
+        </p>
+      </div>
+      <div class="mt-10 flex flex-col gap-2.5">
+        <button v-for="(s, si) in suggestions" :key="s" @click="send(s)"
+          class="group text-left rounded-lg border border-transparent px-4 py-3 transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:shadow-[0_2px_10px_rgba(20,24,30,.05)]">
+          <span class="flex items-center gap-3">
+            <span class="text-[var(--ink-faint)] text-xs font-mono">{{ '0' + (si+1) }}</span>
+            <span class="text-sm text-[var(--ink-soft)] group-hover:text-[var(--ink)] transition">{{ s }}</span>
+            <i data-lucide="arrow-right" class="ml-auto h-3.5 w-3.5 text-[var(--line)] transition group-hover:translate-x-0.5 group-hover:text-[var(--ink-faint)]"></i>
+          </span>
+        </button>
+      </div>
+    </section>
 
-      <template v-for="(m, i) in messages" :key="i">
-        <div class="msg-in" :class="m.role === 'user' ? 'flex justify-end' : ''">
-          <div class="max-w-[85%] min-w-0">
-            <p v-if="m.role === 'user'" class="mb-1 text-right text-[11px] tracking-wide text-[var(--ink-faint)]">我</p>
-            <p v-else class="mb-1 text-[11px] tracking-wide text-[var(--ink-faint)]">老师</p>
-            <div v-if="m.role === 'user'" class="inline-block max-w-full rounded-2xl bg-[var(--bubble)] px-4 py-2.5 text-sm leading-7 whitespace-pre-wrap break-words">{{ m.text }}</div>
-            <div v-else-if="m.text" class="text-sm leading-8 text-[var(--ink)] [&_strong]:font-semibold" v-html="renderMarkdown(m.text)"></div>
-            <div v-if="m.steps.length && m.role !== 'user'">
+    <template v-for="(m, i) in messages" :key="i">
+      <div class="msg-in msg-row group" :class="m.role === 'user' ? 'flex justify-end' : ''">
+        <div class="min-w-0" :class="m.role === 'user' ? 'max-w-[80%]' : 'max-w-[92%] w-full'">
+          <p v-if="m.role === 'user'" class="mb-1 text-right text-[11px] tracking-wide text-[var(--ink-faint)]">我</p>
+          <p v-else class="mb-1.5 text-[11px] tracking-wide text-[var(--ink-faint)]">老师</p>
+
+          <div v-if="m.role === 'user'" class="inline-block max-w-full rounded-2xl rounded-br-md bg-[var(--bubble)] px-4 py-2.5 text-sm leading-7 whitespace-pre-wrap break-words">{{ m.text }}</div>
+
+          <div v-else>
+            <div v-if="m.steps.length" class="mb-2.5">
               <button @click="toggleSteps(i)"
-                class="inline-flex items-center gap-1.5 rounded-full bg-[#F0F2F4] px-2.5 py-0.5 text-[11px] text-[#8B919A] transition hover:bg-[#E4E7EB] hover:text-[#5A6068]">
-                <i data-lucide="chevron-down" class="h-3 w-3 transition-transform" :class="stepsOpen[i] ? 'rotate-180' : ''"></i>
+                class="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-faint)] hover:text-[var(--ink-soft)] transition-colors">
+                <i data-lucide="search" class="h-3 w-3"></i>
                 检索过程 · {{ m.steps.length }} 条
+                <i data-lucide="chevron-down" class="h-3 w-3 transition-transform duration-200" :class="stepsOpen[i] ? 'rotate-180' : ''"></i>
               </button>
-              <div v-show="stepsOpen[i]" class="mt-1.5 flex flex-col items-start gap-1">
-                <span v-for="(st, j) in m.steps" :key="j"
-                  class="inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px]"
-                  :class="stepClass(st.type, m.role)">
-                  <i :data-lucide="stepIcon(st.type)" class="h-3 w-3 shrink-0"></i>
-                  <span class="truncate">{{ st.text }}</span>
-                </span>
+              <div v-show="stepsOpen[i]" class="mt-2 flex flex-col gap-1">
+                <div v-for="(st, j) in m.steps" :key="j" class="flex items-start gap-2 text-[11.5px] leading-5 text-[var(--ink-faint)]">
+                  <span class="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[var(--ink-faint)]"></span>
+                  <span>{{ st.text }}</span>
+                </div>
               </div>
             </div>
+            <div v-if="m.text" class="prose-reply text-[14.5px] text-[var(--ink)]" v-html="renderMarkdown(m.text)"></div>
+            <div v-if="m.text" class="mt-1.5 flex items-center gap-3">
+              <button @click="copyText(i)" class="copy-btn inline-flex items-center gap-1 text-[11px] text-[var(--ink-faint)] hover:text-[var(--ink)] transition-colors">
+                <i data-lucide="copy" class="h-3 w-3"></i>{{ copiedIdx === i ? '已复制' : '复制' }}
+              </button>
+            </div>
+          </div>
         </div>
-      </template>
+      </div>
+    </template>
 
-      <div v-if="loading" class="msg-in flex items-center gap-2 text-sm text-[var(--ink-faint)]">
+    <div v-if="loading" class="msg-in flex flex-col gap-2.5 max-w-[92%]">
+      <p class="text-[11px] tracking-wide text-[var(--ink-faint)]">老师</p>
+      <div class="flex items-center gap-2.5 text-[13px] text-[var(--ink-soft)]">
         <span class="flex gap-1">
-          <i class="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink-faint)]"></i>
-          <i class="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink-faint)]" style="animation-delay:.15s"></i>
-          <i class="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink-faint)]" style="animation-delay:.3s"></i>
+          <span class="pulse-dot h-1.5 w-1.5 rounded-full bg-[var(--ink-faint)]"></span>
+          <span class="pulse-dot h-1.5 w-1.5 rounded-full bg-[var(--ink-faint)]" style="animation-delay:.2s"></span>
+          <span class="pulse-dot h-1.5 w-1.5 rounded-full bg-[var(--ink-faint)]" style="animation-delay:.4s"></span>
         </span>
-        老师正在看你的文章……
-      </div>
-
-      <p v-if="error" class="text-center text-[13px] text-[#C0453A]">{{ error }}</p>
-    </div>
-  </main>
-
-  <footer class="shrink-0 relative">
-    <div class="pointer-events-none absolute inset-x-0 -top-8 h-8 bg-gradient-to-t from-[var(--bg)] to-transparent"></div>
-    <div class="mx-auto w-full max-w-2xl px-6 pb-5">
-      <div class="rounded-2xl border border-[var(--line)] bg-[var(--card)] px-4 py-3 shadow-[0_2px_12px_rgba(20,24,30,.05)] transition duration-200 hover:shadow-[0_4px_18px_rgba(20,24,30,.07)] focus-within:border-[#9CA4AF] focus-within:shadow-[0_6px_24px_rgba(20,24,30,.09)]">
-        <textarea ref="inp" v-model="draft" rows="2" @keydown="onKeydown" @input="autoGrow"
-          placeholder="写下你想说的话……"
-          class="max-h-40 w-full resize-none bg-transparent text-sm leading-7 text-[var(--ink)] placeholder:text-[var(--ink-faint)]"></textarea>
-        <div class="flex items-center justify-between">
-          <span class="hidden sm:block text-[11px] text-[var(--ink-faint)]">Enter 发送 · Shift + Enter 换行</span>
-          <button @click="send()" :disabled="loading || !draft.trim()"
-            class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-4 py-2 text-xs font-medium text-[var(--card)] transition duration-200 hover:bg-black hover:shadow-[0_3px_10px_rgba(0,0,0,.22)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:shadow-none">
-            <span>发送</span>
-            <i data-lucide="arrow-up" class="h-3.5 w-3.5"></i>
-          </button>
-        </div>
+        <span class="typing-line">{{ loadingHint }}</span>
       </div>
     </div>
-  </footer>
+
+    <p v-if="error" class="msg-in flex items-center gap-2.5 text-[13px] text-[#C0453A]">
+      <i data-lucide="alert-circle" class="h-4 w-4 shrink-0"></i>
+      <span>{{ error }}</span>
+      <button @click="retrySend" class="ml-1 text-[12px] underline underline-offset-2 hover:text-[var(--ink)]">重试</button>
+    </p>
+  </div>
+
+  <div class="sticky bottom-3 flex justify-center pointer-events-none">
+    <transition enter-active-class="transition duration-200" enter-from-class="opacity-0 translate-y-2" leave-active-class="transition duration-150" leave-to-class="opacity-0 translate-y-2">
+      <button v-show="showScrollBtn" @click="scrollBottom" class="pointer-events-auto inline-flex items-center justify-center h-8 w-8 rounded-full bg-[var(--card)] border border-[var(--line)] shadow-sm text-[var(--ink-soft)] hover:text-[var(--ink)] transition">
+        <i data-lucide="chevron-down" class="h-4 w-4"></i>
+      </button>
+    </transition>
+  </div>
+</main>
+
+<footer class="shrink-0 relative">
+  <div class="mx-auto w-full max-w-2xl px-6 pb-4">
+    <div class="rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-[0_1px_8px_rgba(20,24,30,.04)] focus-within:shadow-[0_3px_14px_rgba(20,24,30,.08)] focus-within:border-[#B0B8C1] transition duration-200">
+      <textarea ref="inp" v-model="draft" rows="1" @keydown="onKeydown" @input="autoGrow"
+        placeholder="写下你想说的话……"
+        class="max-h-40 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm leading-7 text-[var(--ink)] placeholder:text-[var(--ink-faint)]"></textarea>
+      <div class="flex items-center justify-between px-4 pb-2.5">
+        <span class="text-[11px] text-[var(--ink-faint)]">
+          <span class="hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>
+          <span v-if="draft.length > 80" class="sm:hidden">{{ draft.length }}</span>
+        </span>
+        <button @click="send()" :disabled="loading || !draft.trim()"
+          class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-medium text-[var(--card)] transition duration-150 hover:bg-black hover:shadow-[0_2px_8px_rgba(0,0,0,.2)] active:scale-95 disabled:opacity-25 disabled:cursor-not-allowed disabled:shadow-none">
+          发送<i data-lucide="arrow-up" class="h-3.5 w-3.5"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</footer>
 </div>
 
+
 <script>
-const { createApp, ref, computed, nextTick, onMounted } = Vue;
+const { createApp, ref, nextTick, onMounted } = Vue;
 
 createApp({
   setup() {
@@ -149,31 +180,69 @@ createApp({
     const inp = ref(null);
     const scroller = ref(null);
     const stepsOpen = ref({});
-    function toggleSteps(i) { stepsOpen.value[i] = !stepsOpen.value[i]; }
+    const copiedIdx = ref(-1);
+    const showScrollBtn = ref(false);
+    const lastSent = ref('');
+    const loadingHints = [
+      '正在读你的文章……',
+      '让我想想怎么说……',
+      '翻翻笔记，找一个合适的角度……',
+      '稍等，我在整理思路……'
+    ];
+    let hintTimer = null;
+    const loadingHint = ref(loadingHints[0]);
 
     const suggestions = [
-      { text: '帮我看看这段作文怎么改', desc: '逐段指出问题，给出可落地的改法' },
-      { text: '这个题目可以从哪些角度立意', desc: '一个题目，拆出多种立意方向' },
-      { text: '今年高考作文会考什么方向', desc: '联网查最新考向与热点素材' }
+      '帮我看看这段作文怎么改',
+      '这个题目可以从哪些角度立意',
+      '今年高考作文会考什么方向'
     ];
 
-    function stepClass(type, role) {
-      if (role === 'user') return 'bg-[var(--accent-soft)] text-[var(--ink-soft)]';
-      if (type === 'tool') return 'bg-[var(--accent-soft)] text-[var(--accent)]';
-      if (type === 'tool_result') return 'bg-[var(--accent-soft)] text-[var(--ink-soft)]';
-      return 'bg-[var(--accent-soft)] text-[var(--ink-soft)]';
+    function renderMarkdown(text) {
+      let s = String(text || '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      s = s.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+        '<pre><code>' + code.trim() + '</code></pre>');
+      s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+      s = s.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+      s = s.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+      s = s.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+      s = s.replace(/\*\*([^]+?)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
+      s = s.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+      s = s.replace(/^- (.+)$/gm, '<li>$1</li>');
+      s = s.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+      s = s.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, '<ul>$1</ul>');
+      const lines = s.split('\n');
+      const out = [];
+      for (const line of lines) {
+        if (line.startsWith('<')) { out.push(line); }
+        else if (line.trim()) { out.push('<p>' + line + '</p>'); }
+      }
+      return out.join('\n');
     }
-    function stepIcon(type) {
-      if (type === 'tool') return 'wrench';
-      if (type === 'tool_result') return 'check';
-      return 'info';
+
+    function startHintCycle() {
+      let idx = 0;
+      loadingHint.value = loadingHints[0];
+      clearInterval(hintTimer);
+      hintTimer = setInterval(() => {
+        idx = (idx + 1) % loadingHints.length;
+        loadingHint.value = loadingHints[idx];
+      }, 4000);
     }
+    function stopHintCycle() { clearInterval(hintTimer); }
 
     function scrollBottom() {
       nextTick(() => {
         const el = scroller.value;
         if (el) el.scrollTop = el.scrollHeight;
       });
+    }
+    function onScroll() {
+      const el = scroller.value;
+      if (!el) return;
+      showScrollBtn.value = el.scrollHeight - el.scrollTop - el.clientHeight > 200;
     }
     function renderIcons() {
       nextTick(() => window.lucide && window.lucide.createIcons());
@@ -190,9 +259,11 @@ createApp({
       if (!text || loading.value) return;
       draft.value = '';
       autoGrow();
+      lastSent.value = text;
       messages.value.push({ role: 'user', text, steps: [] });
       loading.value = true;
       error.value = null;
+      startHintCycle();
       renderIcons(); scrollBottom();
       try {
         const res = await fetch('/api/chat', {
@@ -204,44 +275,78 @@ createApp({
         if (res.ok && !data.error) {
           messages.value.push({ role: 'assistant', text: data.reply || '', steps: Array.isArray(data.steps) ? data.steps : [] });
         } else {
-          error.value = '调用出错：' + (data.error || ('HTTP ' + res.status));
+          error.value = data.error || ('HTTP ' + res.status);
         }
       } catch (e) {
-        error.value = '网络错误：' + e.message;
+        error.value = '网络不太顺畅，请重试';
       } finally {
         loading.value = false;
+        stopHintCycle();
         renderIcons(); scrollBottom();
       }
     }
 
+    function retrySend() {
+      error.value = null;
+      if (lastSent.value) {
+        messages.value.pop();
+        draft.value = lastSent.value;
+        send();
+      }
+    }
+
+    async function copyText(i) {
+      const m = messages.value[i];
+      if (!m || !m.text) return;
+      try {
+        await navigator.clipboard.writeText(m.text);
+        copiedIdx.value = i;
+        setTimeout(() => { copiedIdx.value = -1; }, 1500);
+      } catch(e) {}
+    }
+
     async function reset() {
-      try { await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reset' }) }); } catch (e) {}
+      try { await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reset' }) }); } catch(e) {}
       messages.value = [];
       error.value = '';
       draft.value = '';
+      lastSent.value = '';
+      stepsOpen.value = {};
     }
 
+    async function restoreHistory() {
+      try {
+        const res = await fetch('/api/history');
+        const data = await res.json();
+        if (Array.isArray(data.history) && data.history.length) {
+          for (let i = 0; i < data.history.length; i += 2) {
+            if (data.history[i] && data.history[i].role === 'user') {
+              messages.value.push({ role: 'user', text: data.history[i].content || '', steps: [] });
+            }
+            if (data.history[i+1] && data.history[i+1].role === 'assistant') {
+              messages.value.push({ role: 'assistant', text: data.history[i+1].content || '', steps: [] });
+            }
+          }
+          renderIcons();
+        }
+      } catch(e) {}
+    }
+
+    function toggleSteps(i) { stepsOpen.value[i] = !stepsOpen.value[i]; }
     function onKeydown(e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
     }
 
-    onMounted(() => { renderIcons(); inp.value && inp.value.focus(); });
+    onMounted(() => {
+      renderIcons();
+      restoreHistory();
+      inp.value && inp.value.focus();
+    });
 
-    function renderMarkdown(text) {
-      let s = String(text || '')
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      s = s.replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>');
-      s = s.replace(/(^|[^*])\*([^\n*]+?)\*(?!\*)/g, '$1<em>$2</em>');
-      s = s.replace(/\n/g, '<br>');
-      return s;
-    }
-
-    return { renderMarkdown, messages, draft, loading, error, inp, scroller, suggestions, send, reset, onKeydown, autoGrow, stepClass, stepIcon, renderIcons, stepsOpen, toggleSteps };
+    return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint };
   }
 }).mount('#app');
 </script>
 </body>
 </html>
-
-
 

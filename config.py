@@ -7,17 +7,17 @@ import os
 
 # ============ ① 大模型 API（三选一，按填写顺序优先） ============
 
-# 方案A：任意 OpenAI 兼容端点（自定义 base_url + key + 模型名）
-CUSTOM_API_KEY = ""            # 例如 "sk-xxxx"
-CUSTOM_BASE_URL = ""           # 例如 "https://api.example.com/v1/chat/completions"
-CUSTOM_MODEL = ""              # 例如 "glm-4-flash" / "deepseek-chat" 等
+# 方案A：任意 OpenAI 兼容端点（自定义 base_url + key + 模型名；环境变量优先，便于云端部署）
+CUSTOM_API_KEY = os.environ.get("CUSTOM_API_KEY", "")            # 例如 "sk-xxxx"
+CUSTOM_BASE_URL = os.environ.get("CUSTOM_BASE_URL", "")          # 例如 "https://api.example.com/v1/chat/completions"
+CUSTOM_MODEL = os.environ.get("CUSTOM_MODEL", "")                # 例如 "glm-4-flash" / "deepseek-chat" 等
 
 # 方案B：DeepSeek（https://platform.deepseek.com 注册获取）
-DEEPSEEK_API_KEY = ""
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions"
 
 # 方案C：智谱GLM（https://open.bigmodel.cn 注册获取）
-ZHIPU_API_KEY = ""
+ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "")
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
 # ============ ② 搜索 API（可选，实现「先验证再作答」） ============
