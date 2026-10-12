@@ -38,6 +38,48 @@ def _cfg(name, default=None):
     return getattr(config, name, default)
 
 
+
+# ---------------- 检索后处理：同源去重 + 分类加权 ----------------
+
+_CATEGORY_RULES = [
+    (["素材", "例子", "例证", "人物", "案例"], ["素材", "人物", "案例"], 0.008),
+    (["范文", "满分", "一类文", "55+", "高分作文"], ["范文", "满分", "一类文", "55+"], 0.008),
+    (["开头", "结尾", "标题", "句模", "结构"], ["句模", "结构", "方法", "技巧"], 0.006),
+    (["矛盾", "二分", "思辨"], ["课程", "教材", "矛盾"], 0.005),
+    (["改", "批改", "修改", "升格"], ["范文", "满分", "课程"], 0.005),
+]
+
+
+def _diversify(results, max_results):
+    if not results:
+        return results
+    seen = {}
+    out = []
+    for r in results:
+        src = r.get("source", "")
+        count = seen.get(src, 0)
+        if count < 2:
+            out.append(r)
+            seen[src] = count + 1
+        if len(out) >= max_results:
+            break
+    return out
+
+
+def _category_boost(results, query):
+    if not results:
+        return results
+    q = query.lower()
+    for keywords, source_tags, bonus in _CATEGORY_RULES:
+        if any(kw in q for kw in keywords):
+            for r in results:
+                src = (r.get("source") or "").lower()
+                if any(tag in src for tag in source_tags):
+                    r["score"] = round(r["score"] + bonus, 6)
+            break
+    return results
+
+
 class HybridRetriever:
     """两路召回（BM25 + 向量）→ 融合 → 可选精排"""
 
@@ -101,7 +143,7 @@ class HybridRetriever:
     def retrieve(self, query, top_k=None):
         top_k = top_k or int(_cfg("TOP_K", 5))
         cand = int(_cfg("RAG_CANDIDATES", 20) or 20)
-        cand = max(cand, top_k)
+        cand = max(cand, top_k * 3)
         bm25_ranked = self._bm25_indexed(query, cand)
         vec_ranked = self._vector_ranked(query, cand)
         ranked = self._fuse(bm25_ranked, vec_ranked, cand)
@@ -109,6 +151,9 @@ class HybridRetriever:
             {"source": self.bm25.meta[i][0], "text": self.bm25.meta[i][1], "score": round(sc, 4)}
             for i, sc in ranked
         ]
+        results = _diversify(results, top_k * 2)
+        results = _category_boost(results, query)
+        results.sort(key=lambda x: x["score"], reverse=True)
         if _cfg("RAG_RERANK", False) and results:
             results = _rerank(query, results) or results
         return results[:top_k]
