@@ -7,6 +7,7 @@ import json
 import urllib.request
 
 import config
+import net
 from search_tool import TOOLS_SCHEMA, TOOL_IMPL
 
 
@@ -38,14 +39,13 @@ def chat(messages, use_tools=True):
     if use_tools:
         body["tools"] = TOOLS_SCHEMA
 
-    req = urllib.request.Request(
+    data = net.post_json(
         url,
-        data=json.dumps(body).encode("utf-8"),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        method="POST",
+        body,
+        headers={"Authorization": f"Bearer {key}"},
+        timeout=120,
+        retries=3,
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
     msg = data["choices"][0]["message"]
     # 部分兼容端点 content 可能为 null（内容在 reasoning 等字段），做归一化
     if not msg.get("content"):

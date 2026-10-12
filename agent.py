@@ -9,6 +9,11 @@
 """
 import sys, os
 
+try:  # Windows 控制台默认 GBK，打印 emoji/中文会崩，这里统一切到 UTF-8
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
@@ -27,9 +32,10 @@ SYSTEM_TMPL = """{persona}
 """
 
 
-def build_messages(history, user_input, verbose=True):
+def build_messages(history, user_input, verbose=True, hits=None):
     # ① 知识库检索
-    hits = knowledge_base.retrieve(user_input)
+    if hits is None:
+        hits = knowledge_base.retrieve(user_input)
     if verbose:
         print(f"  📚 [知识库命中] {len(hits)} 片段: " + ", ".join(h['source'][:24] for h in hits[:3]) + ("..." if len(hits) > 3 else ""))
 
@@ -82,13 +88,24 @@ def selftest():
     if config.BOCHA_API_KEY:
         print("[OK] 搜索API: 博查")
     else:
-        print("[警告] 搜索未配置——分身将无法联网验证，答事实类问题会如实说无法搜索")
+        try:
+            import web_search
+            print("[OK] 搜索API: 免费免注册引擎链（百度 → 360 → Bing RSS）")
+            eng, hits = web_search.search("测试 搜索连通性", 3)
+            print(f"       连通性测试: {'通过（' + eng + '，命中 ' + str(len(hits)) + ' 条）' if eng else '失败：' + str(hits)}")
+        except Exception as e:
+            print(f"[警告] 免费搜索不可用（{type(e).__name__}: {e}），答事实类问题会如实说无法搜索")
     # 知识库
     eng = knowledge_base.get_engine()
     docs = knowledge_base.read_docs()
     print(f"[{'OK' if docs else '警告'}] 知识库: {len(docs)} 个文件 → {len(eng.meta)} 个检索片段")
+    try:
+        import embeddings
+        print(f"       检索模式: {embeddings.describe()}")
+    except Exception as e:
+        print(f"       检索模式: BM25（{e}）")
     if not docs:
-        print("       （把老师语料 .md/.txt 放进 knowledge/ 目录即可）")
+        print("       （把老师语料 .md/.txt/.json/.csv 放进 knowledge/ 目录即可）")
     elif eng.meta:
         demo = knowledge_base.retrieve("审题立意方法")
         for h in demo[:2]:

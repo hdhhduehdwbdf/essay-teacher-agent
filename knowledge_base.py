@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-知识库检索：BM25（纯Python实现，零依赖）
-- 启动时扫描 knowledge/ 目录，切片、分词、建索引（缓存到 index/bm25.pkl）
-- 中文用字级 bigram 分词，无需 jieba，检索质量够用
+知识库检索入口。
+
+- 关键词路：BM25（纯 Python 实现，零依赖，缓存到 index/bm25.pkl）
+- 语义路：向量检索（见 embeddings.py / rag.py，配置免费向量服务后自动启用）
+- 两路融合排序（RRF）：见 rag.py
+未配置向量服务时，行为与旧版完全一致（纯 BM25）。
 """
 import os, re, math, pickle
 
@@ -10,6 +13,25 @@ from config import KNOWLEDGE_DIR, INDEX_FILE, TOP_K
 
 CHUNK_SIZE = 500      # 每片字符数
 CHUNK_OVERLAP = 80    # 片间重叠
+
+TEXT_EXTS = (".md", ".txt", ".json", ".csv")
+BINARY_EXTS = (".pdf", ".docx")
+
+# 术语扩展：查询词 → 语料中实际出现的说法（只在检索时扩查询，不改语料）
+SYNONYMS = {
+    "高级感": ["语言升格", "升格", "文采"],
+    "思辨": ["矛盾二分", "矛盾", "二分"],
+    "审题": ["立意", "审题立意"],
+    "素材": ["人物素材", "作文素材", "例子", "例证"],
+    "开头": ["开头句模", "凤头", "开篇"],
+    "结尾": ["豹尾", "收束"],
+    "标题": ["拟题", "作文标题"],
+    "分论点": ["结构", "框架"],
+    "人物": ["李子柒", "孔乙己", "人物素材"],
+    "批判": ["批判性", "思辨", "矛盾二分"],
+    "提分": ["55+", "高分", "一类文"],
+    "作文": ["写作", "高考作文"],
+}
 
 
 def tokenize(text):
@@ -31,22 +53,71 @@ def tokenize(text):
     return tokens
 
 
+def expand_query(query):
+    """同义词扩展：命中术语表的词在查询里追加同义说法，提升 BM25 召回。"""
+    expanded = query
+    for term, syns in SYNONYMS.items():
+        if term in query:
+            for s in syns:
+                if s not in expanded:
+                    expanded += " " + s
+    return expanded
+
+
 def read_docs():
-    """读取知识库目录下所有 md/txt 文件"""
+    """读取知识库目录下所有语料（递归子目录）。
+    文本类直接读；pdf/docx 若环境里装了对应库则抽取，否则跳过（不报错）。"""
     docs = []
     if not os.path.isdir(KNOWLEDGE_DIR):
         return docs
-    for fn in sorted(os.listdir(KNOWLEDGE_DIR)):
-        if not fn.lower().endswith((".md", ".txt")):
-            continue
-        path = os.path.join(KNOWLEDGE_DIR, fn)
-        try:
-            text = open(path, encoding="utf-8", errors="ignore").read()
-        except Exception:
-            continue
-        if text.strip():
-            docs.append((fn, text))
+    for root, _dirs, files in os.walk(KNOWLEDGE_DIR):
+        for fn in sorted(files):
+            low = fn.lower()
+            if not low.endswith(TEXT_EXTS + BINARY_EXTS) or fn.startswith("."):
+                continue
+            path = os.path.join(root, fn)
+            rel = os.path.relpath(path, KNOWLEDGE_DIR).replace("\\", "/")
+            text = ""
+            try:
+                if low.endswith(TEXT_EXTS):
+                    text = open(path, encoding="utf-8", errors="ignore").read()
+                elif low.endswith(".pdf"):
+                    text = _read_pdf(path)
+                else:
+                    text = _read_docx(path)
+            except Exception:
+                continue
+            if text.strip():
+                docs.append((rel, text))
     return docs
+
+
+def _read_pdf(path):
+    """有 pypdf/PyPDF2 就抽文字，没有就跳过（保持零依赖）"""
+    try:
+        from pypdf import PdfReader
+    except Exception:
+        try:
+            from PyPDF2 import PdfReader
+        except Exception:
+            return ""
+    try:
+        reader = PdfReader(path)
+        return "\n".join((page.extract_text() or "") for page in reader.pages)
+    except Exception:
+        return ""
+
+
+def _read_docx(path):
+    try:
+        import docx  # python-docx
+    except Exception:
+        return ""
+    try:
+        d = docx.Document(path)
+        return "\n".join(p.text for p in d.paragraphs)
+    except Exception:
+        return ""
 
 
 def chunk_text(text, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
@@ -93,7 +164,7 @@ class BM25:
         self.idf = {t: math.log((n - d + 0.5) / (d + 0.5) + 1) for t, d in self.df.items()}
 
     def search(self, query, top_k=TOP_K):
-        q = tokenize(query)
+        q = tokenize(expand_query(query))
         scores = [0.0] * len(self.corpus_tokens)
         for i, toks in enumerate(self.corpus_tokens):
             tf = {}
@@ -152,7 +223,12 @@ def get_engine():
 
 
 def retrieve(query, top_k=TOP_K):
-    """返回检索命中的语料片段列表"""
+    """返回检索命中的语料片段列表（优先混合 RAG，未启用向量时退回 BM25）"""
+    try:
+        import rag
+        return rag.retrieve(query, top_k)
+    except Exception as e:
+        print(f"[RAG] 混合检索不可用，使用 BM25：{e}")
     eng = get_engine()
     if not eng.meta:
         return []
@@ -162,8 +238,10 @@ def retrieve(query, top_k=TOP_K):
 
 if __name__ == "__main__":
     # 自测
+    import embeddings
     eng = get_engine()
     print(f"索引完成：{len(read_docs())} 个文件，{len(eng.meta)} 个片段")
+    print(f"检索模式：{embeddings.describe()}")
     if eng.meta:
         for h in retrieve("审题立意方法怎么用"):
             print(f"  [{h['score']}] {h['source'][:40]} :: {h['text'][:60]}...")

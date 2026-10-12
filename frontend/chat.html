@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="h-full">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>作文老师</title>
+<link rel="icon" href="https://unpkg.com/lucide-static@latest/icons/pen-line.svg" type="image/svg+xml">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/vendor/vue.global.prod.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@400;600&display=swap" rel="stylesheet">
+<script src="/vendor/lucide.min.js"></script>
+<style>
+  body { font-family: 'PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei UI',system-ui,sans-serif; background: var(--bg); letter-spacing: .01em; }
+  .serif { font-family: 'Noto Serif SC', 'Songti SC', serif; }
+  :root {
+    --bg: #F8F9FA;
+    --ink: #1A1D21;
+    --ink-soft: #737A84;
+    --ink-faint: #9AA1AB;
+    --line: #E4E7EB;
+    --accent: #1A1D21;
+    --accent-soft: #EDEFF2;
+    --bubble: #EDEFF2;
+    --card: #FFFFFF;
+  }
+  .msg-in { animation: rise .4s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes rise { from { opacity:0; transform:translateY(10px);} to { opacity:1; transform:none;} }
+  .fade-in { animation: fade .6s ease both; }
+  @keyframes fade { from { opacity:0; } to { opacity:1; } }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  textarea:focus { outline: none; }
+</style></head>
+<body class="h-full overflow-hidden text-[var(--ink)] antialiased">
+<div id="app" class="h-full flex flex-col">
+
+  <header class="shrink-0 sticky top-0 z-20 border-b border-[var(--line)]/60 bg-[var(--bg)]/80 backdrop-blur-md">
+    <div class="mx-auto w-full max-w-2xl px-6 py-3.5 flex items-center justify-between">
+      <div class="flex items-baseline gap-2.5 fade-in">
+        <span class="serif text-[22px] font-semibold tracking-[.04em] text-[var(--ink)]">作文老师</span>
+        <span class="text-xs text-[var(--ink-soft)]">一位愿意陪你改文章的人</span>
+      </div>
+      <button @click="reset"
+        class="inline-flex items-center gap-1.5 rounded-full border border-transparent px-3 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)] hover:shadow-sm">
+        <i data-lucide="plus" class="h-3.5 w-3.5"></i>新对话
+      </button>
+    </div>
+  </header>
+
+  <main ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
+    <div class="mx-auto w-full max-w-2xl px-6 pb-6 flex flex-col gap-7">
+
+      <section v-if="messages.length === 0" class="fade-in flex min-h-[60vh] flex-col justify-center gap-10 py-12">
+        <div>
+          <p class="mb-4 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[.18em] text-[var(--ink-faint)]">
+            <span class="h-px w-6 bg-[var(--ink-faint)]"></span>作文辅导
+          </p>
+          <h1 class="serif text-3xl font-semibold leading-relaxed tracking-wide text-[var(--ink)] sm:text-4xl">
+            文章是改出来的。<br>
+            <span class="text-[var(--accent)]">交给我，我们慢慢来。</span>
+          </h1>
+          <p class="mt-5 max-w-md text-sm leading-8 text-[var(--ink-soft)]">
+            你可以发一段作文、一个题目，或者只是聊聊不知道怎么写。我会像老师批作业那样，一段一段读，一处一处说。
+          </p>
+        </div>
+        <div class="flex flex-col gap-3">
+          <button v-for="(s, si) in suggestions" :key="s.text" @click="send(s.text)"
+            class="group flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--card)] px-5 py-4 text-left transition duration-200 hover:border-[#B9C0CA] hover:shadow-[0_4px_18px_rgba(20,24,30,.07)] active:scale-[.99]">
+            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-semibold text-[var(--ink-soft)] transition group-hover:bg-[var(--ink)] group-hover:text-[var(--card)]">{{ si + 1 }}</span>
+            <span class="min-w-0">
+              <span class="block text-sm font-medium text-[var(--ink)]">{{ s.text }}</span>
+              <span class="mt-0.5 block text-xs text-[var(--ink-faint)]">{{ s.desc }}</span>
+            </span>
+            <i data-lucide="arrow-right" class="ml-auto h-4 w-4 shrink-0 text-[var(--line)] transition duration-200 group-hover:translate-x-1 group-hover:text-[var(--ink)]"></i>
+          </button>
+        </div>
+      </section>
+
+      <template v-for="(m, i) in messages" :key="i">
+        <div class="msg-in" :class="m.role === 'user' ? 'flex justify-end' : ''">
+          <div class="max-w-[85%] min-w-0">
+            <p v-if="m.role === 'user'" class="mb-1 text-right text-[11px] tracking-wide text-[var(--ink-faint)]">我</p>
+            <p v-else class="mb-1 text-[11px] tracking-wide text-[var(--ink-faint)]">老师</p>
+            <div v-if="m.role === 'user'" class="inline-block max-w-full rounded-2xl bg-[var(--bubble)] px-4 py-2.5 text-sm leading-7 whitespace-pre-wrap break-words">{{ m.text }}</div>
+            <div v-else-if="m.text" class="text-sm leading-8 text-[var(--ink)] [&_strong]:font-semibold" v-html="renderMarkdown(m.text)"></div>
+            <div v-if="m.steps.length && m.role !== 'user'">
+              <button @click="toggleSteps(i)"
+                class="inline-flex items-center gap-1.5 rounded-full bg-[#F0F2F4] px-2.5 py-0.5 text-[11px] text-[#8B919A] transition hover:bg-[#E4E7EB] hover:text-[#5A6068]">
+                <i data-lucide="chevron-down" class="h-3 w-3 transition-transform" :class="stepsOpen[i] ? 'rotate-180' : ''"></i>
+                检索过程 · {{ m.steps.length }} 条
+              </button>
+              <div v-show="stepsOpen[i]" class="mt-1.5 flex flex-col items-start gap-1">
+                <span v-for="(st, j) in m.steps" :key="j"
+                  class="inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px]"
+                  :class="stepClass(st.type, m.role)">
+                  <i :data-lucide="stepIcon(st.type)" class="h-3 w-3 shrink-0"></i>
+                  <span class="truncate">{{ st.text }}</span>
+                </span>
+              </div>
+            </div>
+        </div>
+      </template>
+
+      <div v-if="loading" class="msg-in flex items-center gap-2 text-sm text-[var(--ink-faint)]">
+        <span class="flex gap-1">
+          <i class="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink-faint)]"></i>
+          <i class="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink-faint)]" style="animation-delay:.15s"></i>
+          <i class="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink-faint)]" style="animation-delay:.3s"></i>
+        </span>
+        老师正在看你的文章……
+      </div>
+
+      <p v-if="error" class="text-center text-[13px] text-[#C0453A]">{{ error }}</p>
+    </div>
+  </main>
+
+  <footer class="shrink-0 relative">
+    <div class="pointer-events-none absolute inset-x-0 -top-8 h-8 bg-gradient-to-t from-[var(--bg)] to-transparent"></div>
+    <div class="mx-auto w-full max-w-2xl px-6 pb-5">
+      <div class="rounded-2xl border border-[var(--line)] bg-[var(--card)] px-4 py-3 shadow-[0_2px_12px_rgba(20,24,30,.05)] transition duration-200 hover:shadow-[0_4px_18px_rgba(20,24,30,.07)] focus-within:border-[#9CA4AF] focus-within:shadow-[0_6px_24px_rgba(20,24,30,.09)]">
+        <textarea ref="inp" v-model="draft" rows="2" @keydown="onKeydown" @input="autoGrow"
+          placeholder="写下你想说的话……"
+          class="max-h-40 w-full resize-none bg-transparent text-sm leading-7 text-[var(--ink)] placeholder:text-[var(--ink-faint)]"></textarea>
+        <div class="flex items-center justify-between">
+          <span class="hidden sm:block text-[11px] text-[var(--ink-faint)]">Enter 发送 · Shift + Enter 换行</span>
+          <button @click="send()" :disabled="loading || !draft.trim()"
+            class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-4 py-2 text-xs font-medium text-[var(--card)] transition duration-200 hover:bg-black hover:shadow-[0_3px_10px_rgba(0,0,0,.22)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:shadow-none">
+            <span>发送</span>
+            <i data-lucide="arrow-up" class="h-3.5 w-3.5"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<script>
+const { createApp, ref, computed, nextTick, onMounted } = Vue;
+
+createApp({
+  setup() {
+    const messages = ref([]);
+    const draft = ref('');
+    const loading = ref(false);
+    const error = ref('');
+    const inp = ref(null);
+    const scroller = ref(null);
+    const stepsOpen = ref({});
+    function toggleSteps(i) { stepsOpen.value[i] = !stepsOpen.value[i]; }
+
+    const suggestions = [
+      { text: '帮我看看这段作文怎么改', desc: '逐段指出问题，给出可落地的改法' },
+      { text: '这个题目可以从哪些角度立意', desc: '一个题目，拆出多种立意方向' },
+      { text: '今年高考作文会考什么方向', desc: '联网查最新考向与热点素材' }
+    ];
+
+    function stepClass(type, role) {
+      if (role === 'user') return 'bg-[var(--accent-soft)] text-[var(--ink-soft)]';
+      if (type === 'tool') return 'bg-[var(--accent-soft)] text-[var(--accent)]';
+      if (type === 'tool_result') return 'bg-[var(--accent-soft)] text-[var(--ink-soft)]';
+      return 'bg-[var(--accent-soft)] text-[var(--ink-soft)]';
+    }
+    function stepIcon(type) {
+      if (type === 'tool') return 'wrench';
+      if (type === 'tool_result') return 'check';
+      return 'info';
+    }
+
+    function scrollBottom() {
+      nextTick(() => {
+        const el = scroller.value;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    }
+    function renderIcons() {
+      nextTick(() => window.lucide && window.lucide.createIcons());
+    }
+    function autoGrow() {
+      const el = inp.value;
+      if (!el) return;
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+    }
+
+    async function send(preset) {
+      const text = (typeof preset === 'string' ? preset : draft.value).trim();
+      if (!text || loading.value) return;
+      draft.value = '';
+      autoGrow();
+      messages.value.push({ role: 'user', text, steps: [] });
+      loading.value = true;
+      error.value = null;
+      renderIcons(); scrollBottom();
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+        const data = await res.json();
+        if (res.ok && !data.error) {
+          messages.value.push({ role: 'assistant', text: data.reply || '', steps: Array.isArray(data.steps) ? data.steps : [] });
+        } else {
+          error.value = '调用出错：' + (data.error || ('HTTP ' + res.status));
+        }
+      } catch (e) {
+        error.value = '网络错误：' + e.message;
+      } finally {
+        loading.value = false;
+        renderIcons(); scrollBottom();
+      }
+    }
+
+    async function reset() {
+      try { await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reset' }) }); } catch (e) {}
+      messages.value = [];
+      error.value = '';
+      draft.value = '';
+    }
+
+    function onKeydown(e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    }
+
+    onMounted(() => { renderIcons(); inp.value && inp.value.focus(); });
+
+    function renderMarkdown(text) {
+      let s = String(text || '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      s = s.replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/(^|[^*])\*([^\n*]+?)\*(?!\*)/g, '$1<em>$2</em>');
+      s = s.replace(/\n/g, '<br>');
+      return s;
+    }
+
+    return { renderMarkdown, messages, draft, loading, error, inp, scroller, suggestions, send, reset, onKeydown, autoGrow, stepClass, stepIcon, renderIcons, stepsOpen, toggleSteps };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
+
+
+

@@ -1,29 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-搜索工具：博查 web-search（Function Calling 的执行端）
+搜索工具（Function Calling 的执行端）
+
+优先级：
+  1. 博查 web-search（config 里填了 BOCHA_API_KEY 才走，质量最好）
+  2. 免费免注册引擎链：百度 → 360 → Bing RSS（见 web_search.py，零配置可用）
 """
 import json
 import urllib.request
 
 from config import BOCHA_API_KEY, SEARCH_RESULTS
+import net
+from web_search import search as free_search, format_results
 
 
 def web_search(query: str) -> str:
-    """调用博查搜索API，返回精简结果文本"""
+    """联网搜索，返回精简结果文本"""
     if not BOCHA_API_KEY:
-        return "（搜索工具未配置 BOCHA_API_KEY，无法联网验证。请如实告知用户当前无法搜索，不要编造搜索结果。）"
+        return free_web_search(query)
     try:
-        req = urllib.request.Request(
+        data = net.post_json(
             "https://api.bochaai.com/v1/web-search",
-            data=json.dumps({"query": query, "count": SEARCH_RESULTS, "summary": True}).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {BOCHA_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
+            {"query": query, "count": SEARCH_RESULTS, "summary": True},
+            headers={"Authorization": f"Bearer {BOCHA_API_KEY}"},
+            timeout=20,
+            retries=2,
         )
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
         pages = (data.get("data") or {}).get("webPages") or {}
         items = pages.get("value") or []
         if not items:
@@ -36,7 +38,18 @@ def web_search(query: str) -> str:
             out.append(f"{i}. {name}\n   摘要：{snippet}\n   来源：{url}")
         return "\n".join(out)
     except Exception as e:
-        return f"（搜索失败：{e}）"
+        # 博查挂了也别让分身失去联网能力，退回免费引擎
+        fallback = free_web_search(query)
+        return fallback if "（联网搜索失败" not in fallback else f"（搜索失败：{e}）"
+
+
+def free_web_search(query: str) -> str:
+    """免费免注册多引擎搜索"""
+    engine, hits = free_search(query, max(SEARCH_RESULTS, 5))
+    if not hits:
+        return ("（联网搜索失败：所有免费引擎均不可用"
+                f"{'，' + str(hits) if hits else ''}。请如实告知用户当前无法联网验证，不要编造结果。）")
+    return f"[引擎: {engine}]\n" + format_results(hits, SEARCH_RESULTS)
 
 
 # Function Calling 工具声明（发给模型的"自我介绍"）

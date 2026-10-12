@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库管理 · 叁月聚粮分身</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>body{font-family:"Segoe UI","Microsoft YaHei",sans-serif}</style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+<div class="max-w-7xl mx-auto p-6">
+  <header class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-3">
+      <i data-lucide="library" class="w-7 h-7 text-amber-400"></i>
+      <div>
+        <h1 class="text-xl font-bold">知识库管理</h1>
+        <p class="text-xs text-slate-400" id="mode">加载中…</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <label class="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-sm cursor-pointer">
+        <i data-lucide="upload" class="w-4 h-4"></i>上传语料
+        <input id="upload" type="file" multiple accept=".md,.txt,.json,.csv,.pdf,.docx" class="hidden">
+      </label>
+      <a href="/rag" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm">
+        <i data-lucide="workflow" class="w-4 h-4"></i>RAG 原理
+      </a>
+      <button id="rebuild" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-sm">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i>重建索引
+      </button>
+      <a href="/" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm">
+        <i data-lucide="message-circle" class="w-4 h-4"></i>回到对话
+      </a>
+    </div>
+  </header>
+
+  <div class="grid grid-cols-3 gap-4 mb-4">
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400 mb-1">语料文件</p>
+      <p class="text-2xl font-bold" id="stat-files">-</p>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400 mb-1">检索片段</p>
+      <p class="text-2xl font-bold" id="stat-chunks">-</p>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400 mb-1">检索模式</p>
+      <p class="text-sm font-semibold mt-2 text-amber-300" id="stat-mode">-</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-4 gap-4 mb-6">
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400 mb-2 flex items-center gap-1"><i data-lucide="server" class="w-3 h-3"></i>运行状态</p>
+      <p class="text-sm" id="sys-uptime">-</p>
+      <p class="text-xs text-slate-500 mt-1" id="sys-python">-</p>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400 mb-2 flex items-center gap-1"><i data-lucide="key" class="w-3 h-3"></i>向量服务</p>
+      <p class="text-sm" id="sys-vector">-</p>
+      <p class="text-xs text-slate-500 mt-1">设 SILICONFLOW_API_KEY 开启</p>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400 mb-2 flex items-center gap-1"><i data-lucide="folder-tree" class="w-3 h-3"></i>语料分类</p>
+      <div id="cats" class="text-xs space-y-1.5"></div>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400 mb-2 flex items-center gap-1"><i data-lucide="history" class="w-3 h-3"></i>会话历史</p>
+      <p class="text-sm" id="hist-count">-</p>
+      <div class="flex gap-2 mt-2">
+        <button id="hist-view" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">查看</button>
+        <button id="hist-clear" class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30">清空</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="hist-panel" class="hidden bg-slate-900 rounded-xl border border-slate-800 p-4 mb-6">
+    <p class="text-xs text-slate-400 mb-2">最近对话（服务端记忆，最近 20 轮）</p>
+    <div id="hist-list" class="space-y-2 max-h-64 overflow-y-auto text-xs"></div>
+  </div>
+
+  <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 mb-6">
+    <div class="flex gap-2">
+      <input id="q" placeholder="在知识库里搜一下，比如：怎么写出高级感…" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-amber-400">
+      <button id="search" class="px-5 py-2 rounded-lg bg-amber-500 text-slate-950 font-semibold text-sm hover:bg-amber-400">搜索</button>
+    </div>
+    <div id="results" class="mt-4 space-y-3"></div>
+  </div>
+
+  <div class="grid grid-cols-5 gap-4">
+    <div class="col-span-2 bg-slate-900 rounded-xl border border-slate-800 p-4">
+      <p class="text-xs text-slate-400 mb-2">语料文件（按片段数排序）</p>
+      <input id="file-filter" placeholder="过滤文件名…" class="w-full mb-2 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-amber-400">
+      <div id="cat-filter" class="flex flex-wrap gap-1 mb-2 text-[10px]"></div>
+      <div id="files" class="space-y-1 max-h-[60vh] overflow-y-auto text-sm"></div>
+    </div>
+    <div class="col-span-3 bg-slate-900 rounded-xl border border-slate-800 p-4">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs text-slate-400 truncate flex-1" id="preview-title">点击左侧文件预览内容</p>
+        <div class="ml-2 flex gap-1 hidden" id="preview-actions">
+          <button id="copy-preview" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">复制</button>
+          <button id="edit-file" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">编辑</button>
+          <button id="delete-file" class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30">删除</button>
+        </div>
+      </div>
+      <pre id="preview" class="text-xs text-slate-300 whitespace-pre-wrap max-h-[60vh] overflow-y-auto leading-relaxed">（空）</pre>
+      <textarea id="editor" class="hidden w-full h-[60vh] bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs text-slate-200 focus:outline-none focus:border-emerald-400"></textarea>
+    </div>
+  </div>
+</div>
+<script>
+let ALL_FILES = [];
+let ACTIVE_CAT = "";
+
+async function loadStats(){
+  const s = await (await fetch('/api/stats')).json();
+  document.getElementById('stat-files').textContent = s.files;
+  document.getElementById('stat-chunks').textContent = s.chunks;
+  document.getElementById('stat-mode').textContent = s.mode;
+}
+async function loadFiles(){
+  const d = await (await fetch('/api/files')).json();
+  ALL_FILES = d.files;
+  const cats = [...new Set(d.files.map(f=>f.path.split('/')[0]))];
+  const box = document.getElementById('cat-filter');
+  box.innerHTML = '';
+  const mk = (label, cat)=>{
+    const b = document.createElement('button');
+    b.className = 'cat-btn px-2 py-0.5 rounded-full';
+    b.textContent = label;
+    b.dataset.cat = cat;
+    b.onclick = ()=>{ ACTIVE_CAT = ACTIVE_CAT===cat ? "" : cat; renderFiles(); };
+    box.appendChild(b);
+  };
+  mk('全部','');
+  cats.forEach(c=>mk(c,c));
+  renderFiles();
+}
+function renderFiles(){
+  const kw = document.getElementById('file-filter').value.trim().toLowerCase();
+  const box = document.getElementById('files');
+  box.innerHTML = '';
+  document.querySelectorAll('.cat-btn').forEach(b=>{
+    const on = b.dataset.cat === ACTIVE_CAT;
+    b.className = 'cat-btn px-2 py-0.5 rounded-full ' + (on ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-slate-300');
+  });
+  let shown = 0;
+  ALL_FILES.forEach(f=>{
+    if(ACTIVE_CAT && !f.path.startsWith(ACTIVE_CAT)) return;
+    if(kw && !f.path.toLowerCase().includes(kw)) return;
+    shown++;
+    const a = document.createElement('a');
+    a.href = '#';
+    a.className = 'block px-3 py-2 rounded-lg hover:bg-slate-800 truncate';
+    a.innerHTML = `<span class="text-slate-200">${f.path}</span> <span class="text-[10px] text-amber-400 ml-1">${f.chunks}片</span>`;
+    a.onclick = e=>{e.preventDefault(); preview(f.path);};
+    box.appendChild(a);
+  });
+  if(!shown) box.innerHTML = '<p class="text-xs text-slate-500 px-3 py-2">没有匹配的文件。</p>';
+}
+document.getElementById('file-filter').oninput = renderFiles;
+let PREVIEW_PATH = "";
+async function preview(path){
+  const d = await (await fetch('/api/files?path='+encodeURIComponent(path))).json();
+  PREVIEW_PATH = path;
+  document.getElementById('editor').classList.add('hidden');
+  document.getElementById('preview').classList.remove('hidden');
+  document.getElementById('edit-file').textContent = '编辑';
+  const full = d.content || '';
+  document.getElementById('preview-title').textContent = path + (full.length>=20000 ? '（仅显示前 20000 字符）' : '');
+  document.getElementById('preview').textContent = full || '（空文件）';
+  document.getElementById('preview-actions').classList.remove('hidden');
+}
+document.getElementById('copy-preview').onclick = ()=>{
+  navigator.clipboard.writeText(document.getElementById('preview').textContent);
+};
+document.getElementById('edit-file').onclick = async ()=>{
+  const ta = document.getElementById('editor'), pre = document.getElementById('preview');
+  if(ta.classList.contains('hidden')){
+    ta.value = pre.textContent === '（空文件）' ? '' : pre.textContent;
+    ta.classList.remove('hidden'); pre.classList.add('hidden');
+    document.getElementById('edit-file').textContent = '保存并重建';
+  } else {
+    const d = await (await fetch('/api/files/save',{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({path:PREVIEW_PATH, content:ta.value})})).json();
+    if(d.ok){
+      ta.classList.add('hidden'); pre.classList.remove('hidden');
+      pre.textContent = ta.value || '（空文件）';
+      document.getElementById('edit-file').textContent = '编辑';
+      alert(`已保存：${d.files} 文件 / ${d.chunks} 片段`);
+      loadStats(); loadFiles(); loadCats();
+    } else alert('保存失败：'+(d.error||''));
+  }
+};
+document.getElementById('upload').onchange = async e=>{
+  if(!e.target.files.length) return;
+  for(const file of e.target.files){
+    const buf = new Uint8Array(await file.arrayBuffer());
+    let bin = ''; for(let i=0;i<buf.length;i++) bin += String.fromCharCode(buf[i]);
+    const d = await (await fetch('/api/files/upload',{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({path:file.name, data:btoa(bin)})})).json();
+    if(!d.ok){ alert('上传失败：'+file.name+'（'+(d.error||'未知错误')+'）'); break; }
+  }
+  alert('上传完成，索引已重建');
+  loadStats(); loadFiles(); loadCats(); e.target.value='';
+};
+document.getElementById('delete-file').onclick = async ()=>{
+  if(!PREVIEW_PATH) return;
+  if(!confirm(`确定删除「${PREVIEW_PATH}」？\n原文件会备份到 knowledge_backup/，索引自动重建。`)) return;
+  const d = await (await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:PREVIEW_PATH})})).json();
+  if(d.ok){
+    PREVIEW_PATH = "";
+    document.getElementById('preview-title').textContent = '文件已删除';
+    document.getElementById('preview').textContent = '（空）';
+    document.getElementById('preview-actions').classList.add('hidden');
+    alert(`已删除并重建索引：${d.files} 文件 / ${d.chunks} 片段`);
+    loadStats(); loadFiles(); loadCats();
+  }
+};
+document.addEventListener('keydown', e=>{
+  if(e.key==='/' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){
+    e.preventDefault();
+    document.getElementById('q').focus();
+  }
+});
+async function search(){
+  const q = document.getElementById('q').value.trim();
+  if(!q) return;
+  const d = await (await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q})})).json();
+  const box = document.getElementById('results');
+  box.innerHTML = d.hits.length ? '' : '<p class="text-sm text-slate-500">没有命中。</p>';
+  d.hits.forEach(h=>{
+    const div = document.createElement('div');
+    div.className = 'bg-slate-950 border border-slate-800 rounded-lg p-3';
+    const src = document.createElement('p');
+    src.className = 'text-xs text-amber-400 mb-1 cursor-pointer hover:underline';
+    src.textContent = `${h.source} · 相关度 ${h.score}`;
+    src.onclick = ()=>preview(h.source);
+    const body = document.createElement('p');
+    body.className = 'text-xs text-slate-300 leading-relaxed';
+    const esc = q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    body.innerHTML = h.text.replace(/</g,'&lt;').split(new RegExp(`(${esc})`,'g'))
+      .map(part=>part===q?`<mark class="bg-amber-500/40 text-slate-100 rounded px-0.5">${q}</mark>`:part).join('');
+    div.appendChild(src);
+    div.appendChild(body);
+    box.appendChild(div);
+  });
+}
+document.getElementById('search').onclick = search;
+document.getElementById('q').onkeydown = e=>{if(e.key==='Enter')search();};
+document.getElementById('rebuild').onclick = async e=>{
+  if(!confirm('重建 BM25 索引？语料多时需要几秒。')) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  btn.textContent = '重建中…';
+  const d = await (await fetch('/api/rebuild',{method:'POST'})).json();
+  btn.disabled = false;
+  btn.innerHTML = '<i data-lucide="refresh-cw" class="w-4 h-4"></i>重建索引';
+  lucide.createIcons();
+  alert(`重建完成：${d.files} 文件 / ${d.chunks} 片段`);
+  loadStats(); loadFiles();
+};
+async function loadSystem(){
+  const s = await (await fetch('/api/system')).json();
+  const m = Math.floor(s.uptime_sec/60), h = Math.floor(m/60);
+  document.getElementById('sys-uptime').textContent = h>0 ? `${h} 小时 ${m%60} 分` : `${m} 分钟`;
+  document.getElementById('sys-python').textContent = 'Python ' + s.python;
+  const v = document.getElementById('sys-vector');
+  v.textContent = s.has_vector_key ? `${s.vector_provider} 已配置 ✓` : `${s.vector_provider} 未配置 KEY`;
+  v.className = 'text-sm ' + (s.has_vector_key ? 'text-emerald-400' : 'text-slate-500');
+}
+async function loadCats(){
+  const d = await (await fetch('/api/categories')).json();
+  const box = document.getElementById('cats');
+  const entries = Object.entries(d.categories).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const max = Math.max(...entries.map(e=>e[1]), 1);
+  box.innerHTML = entries.map(([k,v])=>`
+    <div>
+      <div class="flex justify-between mb-0.5"><span class="text-slate-300 truncate">${k}</span><span class="text-amber-400">${v}</span></div>
+      <div class="h-1 bg-slate-800 rounded-full"><div class="h-1 bg-amber-500 rounded-full" style="width:${v/max*100}%"></div></div>
+    </div>`).join('');
+}
+async function loadHistory(){
+  const d = await (await fetch('/api/history')).json();
+  document.getElementById('hist-count').textContent = `${d.history.length/2} 轮对话`;
+}
+document.getElementById('hist-view').onclick = async ()=>{
+  const panel = document.getElementById('hist-panel');
+  panel.classList.toggle('hidden');
+  if(!panel.classList.contains('hidden')){
+    const d = await (await fetch('/api/history')).json();
+    const box = document.getElementById('hist-list');
+    box.innerHTML = d.history.length ? '' : '<p class="text-slate-500">暂无对话记录。</p>';
+    d.history.forEach(m=>{
+      const div = document.createElement('div');
+      div.className = 'p-2 rounded-lg ' + (m.role==='user'?'bg-slate-800':'bg-slate-950 border border-slate-800');
+      div.innerHTML = `<span class="text-amber-400 font-semibold">${m.role==='user'?'问':'答'}</span> <span class="text-slate-300">${(m.content||'').replace(/</g,'&lt;').slice(0,200)}</span>`;
+      box.appendChild(div);
+    });
+    const s = await (await fetch('/api/sessions')).json();
+    if(s.sessions.length){
+      const hr = document.createElement('hr');
+      hr.className = 'border-slate-800 my-2';
+      box.appendChild(hr);
+      const t = document.createElement('p');
+      t.className = 'text-slate-400 font-semibold';
+      t.textContent = '落盘会话（重启不丢）：';
+      box.appendChild(t);
+      s.sessions.forEach(x=>{
+        const div = document.createElement('div');
+        div.className = 'p-2 rounded-lg bg-slate-950 border border-slate-800';
+        div.innerHTML = `<span class="text-emerald-400">${x.id}</span> <span class="text-slate-400">· ${x.updated} · ${x.turns} 轮</span>`;
+        box.appendChild(div);
+      });
+    }
+  }
+};
+document.getElementById('hist-clear').onclick = async e=>{
+  if(!confirm('确定清空服务端会话记忆？')) return;
+  await fetch('/api/history/clear',{method:'POST'});
+  loadHistory(); document.getElementById('hist-list').innerHTML = '';
+};
+loadStats(); loadFiles();
+loadSystem(); loadCats(); loadHistory();
+lucide.createIcons();
+</script>
+</body>
+</html>

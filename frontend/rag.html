@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>RAG 原理 · 叁月聚粮分身</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>body{font-family:"Segoe UI","Microsoft YaHei",sans-serif}.arrow{color:#f59e0b}</style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+<div class="max-w-6xl mx-auto p-8">
+  <header class="flex items-center gap-3 mb-2">
+    <i data-lucide="workflow" class="w-8 h-8 text-amber-400"></i>
+    <h1 class="text-2xl font-bold">RAG 检索增强生成 · 工作原理</h1>
+  </header>
+  <p class="text-slate-400 text-sm mb-8">让分身回答问题前，先去老师自己的语料库查资料，再结合资料作答——不瞎编、有出处。</p>
+
+  <!-- 第一部分：入库流水线 -->
+  <h2 class="text-lg font-semibold mb-3 flex items-center gap-2"><i data-lucide="database" class="w-5 h-5 text-amber-400"></i>① 语料入库流水线（离线，一次性）</h2>
+  <div class="flex items-stretch gap-2 mb-10 text-center text-xs">
+    <div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <i data-lucide="file-stack" class="w-6 h-6 text-sky-400 mx-auto mb-2"></i>
+      <p class="font-semibold text-sm mb-1">抓取语料</p>
+      <p class="text-slate-400">SoulAgent 平台<br>87 个文件</p>
+    </div>
+    <div class="flex items-center arrow"><i data-lucide="arrow-right" class="w-5 h-5"></i></div>
+    <div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <i data-lucide="brush-cleaning" class="w-6 h-6 text-rose-400"></i>
+      <p class="font-semibold text-sm mb-1">语料清洗</p>
+      <p class="text-slate-400">剥微信元数据头 53 个<br>丢图片占位行 33 行</p>
+    </div>
+    <div class="flex items-center arrow"><i data-lucide="arrow-right" class="w-5 h-5"></i></div>
+    <div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <i data-lucide="scissors" class="w-6 h-6 text-emerald-400"></i>
+      <p class="font-semibold text-sm mb-1">切片</p>
+      <p class="text-slate-400">按段落切成<br>838 个片段</p>
+    </div>
+    <div class="flex items-center arrow"><i data-lucide="arrow-right" class="w-5 h-5"></i></div>
+    <div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <i data-lucide="search" class="w-6 h-6 text-amber-400"></i>
+      <p class="font-semibold text-sm mb-1">建索引</p>
+      <p class="text-slate-400">BM25 词频索引<br>（向量索引可选）</p>
+    </div>
+  </div>
+
+  <!-- 第二部分：在线检索流程 -->
+  <h2 class="text-lg font-semibold mb-3 flex items-center gap-2"><i data-lucide="zap" class="w-5 h-5 text-amber-400"></i>② 提问时的检索流程（在线，每次问答）</h2>
+  <div class="flex items-stretch gap-2 mb-6 text-center text-xs">
+    <div class="flex-1 bg-amber-500/10 border border-amber-500/40 rounded-xl p-4">
+      <i data-lucide="message-square" class="w-6 h-6 text-amber-400"></i>
+      <p class="font-semibold text-sm mb-1">用户提问</p>
+      <p class="text-slate-300">"怎么写出高级感？"</p>
+    </div>
+    <div class="flex items-center arrow"><i data-lucide="arrow-right" class="w-5 h-5"></i></div>
+    <div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <i data-lucide="replace" class="w-6 h-6 text-violet-400"></i>
+      <p class="font-semibold text-sm mb-1">同义词扩展</p>
+      <p class="text-slate-400">高级感 → 语言升格 / 文采</p>
+    </div>
+    <div class="flex items-center arrow"><i data-lucide="arrow-right" class="w-5 h-5"></i></div>
+    <div class="flex-[2] bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <p class="font-semibold text-sm mb-2">双路召回（并行）</p>
+      <div class="grid grid-cols-2 gap-2">
+        <div class="bg-slate-950 border border-slate-700 rounded-lg p-2">
+          <p class="text-slate-200 font-semibold">关键词路 BM25</p>
+          <p class="text-slate-500">字面匹配，零依赖</p>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-lg p-4 opacity-60">
+          <p class="text-slate-200 font-semibold">语义路 向量</p>
+          <p class="text-slate-400">意思相近也能召回<br><span class="text-amber-400">待配置 KEY</span></p>
+        </div>
+      </div>
+    </div>
+    <div class="flex items-center arrow"><i data-lucide="arrow-right" class="w-5 h-5"></i></div>
+    <div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <i data-lucide="merge" class="w-6 h-6 text-cyan-400"></i>
+      <p class="font-semibold text-sm mb-1">融合排序</p>
+      <p class="text-slate-400">RRF 加权合并<br>取 TOP 5 片段</p>
+    </div>
+  </div>
+
+  <div class="flex items-stretch gap-2 mb-10 text-center text-xs">
+    <div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <i data-lucide="brain" class="w-6 h-6 text-emerald-400"></i>
+      <p class="font-semibold text-sm mb-1">组装提示词</p>
+      <p class="text-slate-400">人设 + 检索到的资料 + 问题</p>
+    </div>
+    <div class="flex items-center arrow"><i data-lucide="arrow-right" class="w-5 h-5"></i></div>
+    <div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <i data-lucide="bot" class="w-6 h-6 text-amber-400"></i>
+      <p class="font-semibold text-sm mb-1">大模型生成</p>
+      <p class="text-slate-400">只用资料里的说法回答<br>未命中可联网搜索兜底</p>
+    </div>
+  </div>
+
+  <!-- 数据一览 -->
+  <h2 class="text-lg font-semibold mb-3 flex items-center gap-2"><i data-lucide="bar-chart-3" class="w-5 h-5 text-amber-400"></i>③ 当前知识库数据</h2>
+  <div class="grid grid-cols-6 gap-3 mb-8 text-center">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-amber-400">87</p><p class="text-[10px] text-slate-400 mt-1">语料文件</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-amber-400">838</p><p class="text-[10px] text-slate-400 mt-1">检索片段</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-emerald-400">49</p><p class="text-[10px] text-slate-400 mt-1">视频文案</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-emerald-400">15</p><p class="text-[10px] text-slate-400 mt-1">课程</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-emerald-400">10</p><p class="text-[10px] text-slate-400 mt-1">人格总结</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-slate-500">BM25</p><p class="text-[10px] text-slate-400 mt-1">当前模式</p></div>
+  </div>
+
+  <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-sm text-slate-300">
+    <p class="font-semibold text-amber-300 mb-1">一个真实例子</p>
+    <p>问「怎么写出高级感」→ 扩展成「语言升格 / 文采」→ BM25 从 838 个片段里捞出《口水话秒变高端货》《矛盾二分极限抢救》《上分笔记》→ 模型基于这些原文回答，答案风格和老师本人一致。</p>
+  </div>
+
+  <div class="mt-8 text-center">
+    <a href="/admin" class="text-amber-400 hover:underline text-sm">← 返回知识库管理</a>
+  </div>
+</div>
+<script>lucide.createIcons();</script>
+</body>
+</html>

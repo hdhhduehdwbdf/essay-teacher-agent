@@ -11,3 +11,6 @@ __pycache__/
 # 用户私有语料（按需取消注释；演示仓库保持空目录）
 # knowledge/*
 # !knowledge/.gitkeep
+
+# HF Space 同步产物（含运行文件与私有语料，绝不提交到公开仓库）
+hf_space/
