@@ -1,0 +1,13 @@
+# 密钥与配置（绝不提交）
+config_local.py
+*.key
+.env
+
+# 运行时生成
+index/*.pkl
+__pycache__/
+*.pyc
+
+# 用户私有语料（按需取消注释；演示仓库保持空目录）
+# knowledge/*
+# !knowledge/.gitkeep

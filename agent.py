@@ -1,0 +1,144 @@
+# -*- coding: utf-8 -*-
+"""
+作文老师 Agent · 命令行入口
+组装顺序：persona(system) → 知识库检索片段 → 会话历史 → 用户输入
+用法：
+  python agent.py                # 交互对话
+  python agent.py "问题"          # 单问单答
+  python agent.py --test         # 自检（不调API，测索引和配置）
+"""
+import sys, os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import config
+import knowledge_base
+from llm import chat_with_tool_loop
+
+SYSTEM_TMPL = """{persona}
+
+==================== 知识库检索结果（与本问题相关的老师语料片段） ====================
+{retrieved}
+====================================================================================
+使用规则：
+- 上方检索结果是老师真实语料，回答优先基于它；素材里没有的，说"这个我没怎么碰过"。
+- 涉及事实/案例/数据的表述，先用 web_search 工具验证，再写进回答。
+- 保持 persona 全部规则：理解在前拆解在后、先验证再作答、不编造细节。
+"""
+
+
+def build_messages(history, user_input, verbose=True):
+    # ① 知识库检索
+    hits = knowledge_base.retrieve(user_input)
+    if verbose:
+        print(f"  📚 [知识库命中] {len(hits)} 片段: " + ", ".join(h['source'][:24] for h in hits[:3]) + ("..." if len(hits) > 3 else ""))
+
+    if hits:
+        retrieved = "\n\n".join(f"【来源: {h['source']}】\n{h['text']}" for h in hits)
+    else:
+        retrieved = "（知识库暂无语料或未命中。此时更要用 web_search 验证事实，素材里没有的如实说没碰过。）"
+
+    persona = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), config.PERSONA_FILE),
+                   encoding="utf-8").read()
+    system = SYSTEM_TMPL.format(persona=persona, retrieved=retrieved)
+
+    # ② 组装：system → 历史 → 本轮输入
+    messages = [{"role": "system", "content": system}]
+    kept = history[-(config.HISTORY_ROUNDS * 2):]
+    messages.extend(kept)
+    messages.append({"role": "user", "content": user_input})
+    return messages
+
+
+def answer(user_input, history, verbose=True):
+    messages = build_messages(history, user_input, verbose)
+    reply = chat_with_tool_loop(messages, verbose=verbose)
+    # 简洁纪律：超长截断提醒（不硬切，交由下一轮 system 收敛）
+    history.append({"role": "user", "content": user_input})
+    history.append({"role": "assistant", "content": reply})
+    return reply
+
+
+def selftest():
+    print("=" * 50)
+    print("自检模式（不调 API）")
+    print("=" * 50)
+    ok = True
+    # persona 文件
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), config.PERSONA_FILE)
+    if os.path.exists(p):
+        n = len(open(p, encoding="utf-8").read())
+        print(f"[OK] persona: {p} ({n} 字)")
+    else:
+        print(f"[缺失] persona 文件不存在: {p}")
+        ok = False
+    # 配置
+    if getattr(config, "CUSTOM_API_KEY", "") or config.DEEPSEEK_API_KEY or config.ZHIPU_API_KEY:
+        prov = "自定义端点" if getattr(config, "CUSTOM_API_KEY", "") else ("DeepSeek" if config.DEEPSEEK_API_KEY else "智谱GLM")
+        print(f"[OK] 模型API: {prov} / {config.MODEL}")
+    else:
+        print("[缺失] config.py 未填模型 API KEY")
+        ok = False
+    if config.BOCHA_API_KEY:
+        print("[OK] 搜索API: 博查")
+    else:
+        print("[警告] 搜索未配置——分身将无法联网验证，答事实类问题会如实说无法搜索")
+    # 知识库
+    eng = knowledge_base.get_engine()
+    docs = knowledge_base.read_docs()
+    print(f"[{'OK' if docs else '警告'}] 知识库: {len(docs)} 个文件 → {len(eng.meta)} 个检索片段")
+    if not docs:
+        print("       （把老师语料 .md/.txt 放进 knowledge/ 目录即可）")
+    elif eng.meta:
+        demo = knowledge_base.retrieve("审题立意方法")
+        for h in demo[:2]:
+            print(f"       检索测试 [score={h['score']}] {h['source'][:36]}")
+    print("=" * 50)
+    print("自检" + ("通过，可以运行 python agent.py 开始对话" if ok else "未通过，请先补齐上述 [缺失] 项"))
+    return ok
+
+
+def main():
+    args = [a for a in sys.argv[1:]]
+    if "--test" in args:
+        args.remove("--test")
+        selftest()
+        return
+
+    history = []
+    # 单问模式
+    if args:
+        q = " ".join(args)
+        print(answer(q, history))
+        return
+
+    # 交互模式
+    print("作文老师 Agent（自建版）· 输入问题开始对话，exit 退出，/new 清空会话记忆")
+    print("-" * 60)
+    while True:
+        try:
+            q = input("\n你：").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n再见。")
+            break
+        if not q:
+            continue
+        if q.lower() in ("exit", "quit", "q"):
+            print("再见。")
+            break
+        if q == "/new":
+            history.clear()
+            print("（会话记忆已清空）")
+            continue
+        print("分身：")
+        try:
+            print(answer(q, history))
+        except SystemExit as e:
+            print(e)
+            break
+        except Exception as e:
+            print(f"[调用出错] {e}\n请检查网络与 API KEY 配置。")
+
+
+if __name__ == "__main__":
+    main()
