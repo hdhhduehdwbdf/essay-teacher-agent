@@ -82,7 +82,7 @@
 
   <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 mb-6">
     <div class="flex items-center justify-between mb-3">
-      <p class="text-xs text-slate-400 flex items-center gap-1"><i data-lucide="brain" class="w-3 h-3"></i>长期记忆（画像/偏好/事实/摘要，对话中自动沉淀）</p>
+      <p class="text-xs text-slate-400 flex items-center gap-1"><i data-lucide="brain" class="w-3 h-3"></i>长期记忆（画像/偏好/事实，对话中自动沉淀）</p>
       <button id="mem-clear" class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30">全部清空</button>
     </div>
     <div id="mem-list" class="space-y-2 max-h-72 overflow-y-auto text-xs"><p class="text-slate-500">加载中…</p></div>
@@ -297,8 +297,8 @@ async function loadMemory(){
   const d = await (await fetch('/api/memory')).json();
   const box = document.getElementById('mem-list');
   if(!d.items.length){ box.innerHTML = '<p class="text-slate-500">暂无长期记忆。对话中模型会自动沉淀，也可以在聊天里说"记住：xxx"。</p>'; return; }
-  const badge = {profile:'画像', preference:'偏好', fact:'事实', summary:'摘要'};
-  const color = {profile:'text-emerald-400', preference:'text-sky-400', fact:'text-amber-400', summary:'text-slate-400'};
+  const badge = {profile:'画像', preference:'偏好', fact:'事实'};
+  const color = {profile:'text-emerald-400', preference:'text-sky-400', fact:'text-amber-400'};
   box.innerHTML = '';
   d.items.forEach(it=>{
     const row = document.createElement('div');
