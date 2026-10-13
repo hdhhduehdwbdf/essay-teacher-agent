@@ -10,7 +10,8 @@ if ($listener) {
 }
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-Start-Process -WindowStyle Hidden -FilePath "py" -ArgumentList "my_agent\web_server.py" -WorkingDirectory $root
+$pyExe = if (Get-Command py -ErrorAction SilentlyContinue) { "py" } else { "python" }
+Start-Process -WindowStyle Hidden -FilePath $pyExe -ArgumentList "web_server.py" -WorkingDirectory $root
 $ok = $false
 foreach ($i in 1..15) {
     Start-Sleep -Seconds 1

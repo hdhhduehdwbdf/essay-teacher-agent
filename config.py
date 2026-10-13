@@ -5,11 +5,18 @@
 """
 import os
 
-# ============ ① 大模型 API（已接入：flagos · GLM-5.2） ============
-# 自定义 OpenAI 兼容端点（当前使用）
-CUSTOM_API_KEY = """"
-CUSTOM_BASE_URL = "https://api.flagos.net/v1/chat/completions"
-CUSTOM_MODEL = "GLM-5.2"
+# ============ ① 大模型 API ============
+# 推荐做法：复制 config_local.example.py 为 config_local.py，把 KEY 填在里面（该文件已被 .gitignore 排除，不会提交）
+# 也支持环境变量覆盖：CUSTOM_API_KEY / CUSTOM_BASE_URL / CUSTOM_MODEL
+CUSTOM_API_KEY = os.environ.get("CUSTOM_API_KEY", "")
+CUSTOM_BASE_URL = os.environ.get("CUSTOM_BASE_URL", "")
+CUSTOM_MODEL = os.environ.get("CUSTOM_MODEL", "")
+
+# 本地私密配置（可选）：存在则覆盖上面的值，绝不提交
+_local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_local.py")
+if os.path.exists(_local):
+    with open(_local, encoding="utf-8") as _f:
+        exec(compile(_f.read(), _local, "exec"), globals())
 
 # 备选方案（填了 CUSTOM 的就不用动这些）：
 # DeepSeek: https://platform.deepseek.com
@@ -27,7 +34,7 @@ MODEL = CUSTOM_MODEL
 BOCHA_API_KEY = ""
 
 # ============ ③ 行为参数 ============
-PERSONA_FILE = "persona_v2.md"        # 人格文件
+PERSONA_FILE = "persona.md"        # 人格文件
 KNOWLEDGE_DIR = "knowledge"           # 知识库语料目录（放 .md/.txt/.json/.csv，可分子目录）
 INDEX_FILE = "index/bm25.pkl"         # 关键词检索索引缓存
 VECTOR_INDEX_FILE = "index/vectors.pkl"  # 语义向量索引缓存

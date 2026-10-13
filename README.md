@@ -31,10 +31,17 @@
 
 ## 快速开始（3步）
 
-**1. 填 KEY**（打开 `config.py`，三选一）：
-- 任意 OpenAI 兼容端点：填 `CUSTOM_API_KEY` + `CUSTOM_BASE_URL` + `CUSTOM_MODEL`
-- DeepSeek：https://platform.deepseek.com 注册获取
-- 智谱 GLM：https://open.bigmodel.cn 注册获取（glm-4-flash 免费）
+**1. 填 KEY**（推荐用本地配置文件，不进 git）：
+- 复制 `config_local.example.py` 为 `config_local.py`，填入 `CUSTOM_API_KEY` + `CUSTOM_BASE_URL` + `CUSTOM_MODEL`
+- 任意 OpenAI 兼容端点均可（DeepSeek：https://platform.deepseek.com ；智谱 GLM：https://open.bigmodel.cn ，glm-4-flash 免费）
+- 也支持环境变量：`CUSTOM_API_KEY` / `CUSTOM_BASE_URL` / `CUSTOM_MODEL`
+
+**Windows 一键启动**（推荐）：
+- 双击 `start.bat` —— 后台启动服务并自动打开浏览器
+- 双击 `stop.bat` —— 停止服务（按端口结束真实进程）
+- 或运行 `restart_server.ps1` —— 重启并等待健康检查通过
+
+> 手动启动：在仓库根目录运行 `python web_server.py`（Windows 若装了 py 启动器则用 `py web_server.py`）
 
 **2. 自检**：
 ```bash
@@ -45,7 +52,7 @@ python agent.py --test
 ```bash
 python agent.py                # 命令行交互模式
 python agent.py "怎么审题"      # 单问模式
-python web_server.py           # 网页模式 → 浏览器打开 http://127.0.0.1:8778
+python web_server.py           # 网页模式 → 浏览器打开 http://127.0.0.1:8778（Windows 也可双击 start.bat）
 ```
 命令行模式里 `/new` 清空会话记忆，`exit` 退出。
 
