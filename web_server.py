@@ -26,11 +26,14 @@ GET_ROUTES = {
     "/index.html": lambda qs: (200, None, "chat.html"),
     "/admin": lambda qs: (200, None, "admin.html"),
     "/rag": lambda qs: (200, None, "rag.html"),
+    "/star": lambda qs: (200, None, "star.html"),
+    "/threads": lambda qs: (200, None, "threads.html"),
     "/api/stats": lambda qs: (200, api.stats(), None),
     "/api/system": lambda qs: (200, api.system(), None),
     "/api/sessions": lambda qs: (200, api.sessions_list(), None),
     "/api/categories": lambda qs: (200, api.categories(), None),
     "/api/history": lambda qs: (200, api.history(), None),
+    "/api/memory": lambda qs: (200, api.memory_list(), None),
     "/api/files": lambda qs: (*api.file_read(unquote(qs.get("path", [""])[0])), None),
 }
 
@@ -87,6 +90,8 @@ POST_ROUTES = {
     "/api/files/save": "file_save",
     "/api/files/upload": "file_upload",
     "/api/history/clear": "history_clear",
+    "/api/memory/delete": "memory_delete",
+    "/api/memory/clear": "memory_clear",
 }
 
 

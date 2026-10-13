@@ -1,38 +1,38 @@
 # -*- coding: utf-8 -*-
 """
-作文老师 Agent · 配置文件
-填好模型 KEY 就能跑。支持任意 OpenAI 兼容端点 / DeepSeek / 智谱GLM。
+叁月聚粮分身 · 配置文件
+填好两个 KEY 就能跑。支持 DeepSeek 或 智谱GLM，二选一。
 """
 import os
 
-# ============ ① 大模型 API（三选一，按填写顺序优先） ============
+# ============ ① 大模型 API（已接入：flagos · GLM-5.2） ============
+# 自定义 OpenAI 兼容端点（当前使用）
+CUSTOM_API_KEY = """"
+CUSTOM_BASE_URL = "https://api.flagos.net/v1/chat/completions"
+CUSTOM_MODEL = "GLM-5.2"
 
-# 方案A：任意 OpenAI 兼容端点（自定义 base_url + key + 模型名；环境变量优先，便于云端部署）
-CUSTOM_API_KEY = os.environ.get("CUSTOM_API_KEY", "")            # 例如 "sk-xxxx"
-CUSTOM_BASE_URL = os.environ.get("CUSTOM_BASE_URL", "")          # 例如 "https://api.example.com/v1/chat/completions"
-CUSTOM_MODEL = os.environ.get("CUSTOM_MODEL", "")                # 例如 "glm-4-flash" / "deepseek-chat" 等
+# 备选方案（填了 CUSTOM 的就不用动这些）：
+# DeepSeek: https://platform.deepseek.com
+DEEPSEEK_API_KEY = ""
+# 智谱: https://open.bigmodel.cn
+ZHIPU_API_KEY = ""
 
-# 方案B：DeepSeek（https://platform.deepseek.com 注册获取）
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions"
-
-# 方案C：智谱GLM（https://open.bigmodel.cn 注册获取）
-ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "")
-ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+# 生效模型（按上面自动选择）
+MODEL = CUSTOM_MODEL
 
 # ============ ② 搜索 API（可选，实现「先验证再作答」） ============
-# 博查 API（国内直付，注册送免费额度）：https://open.bochaai.com
-# 留空也完全可用：默认走免费免注册引擎链（百度 → 360 → Bing RSS，见 web_search.py）
-# 填了则优先用博查（结果更干净），失败会自动退回免费引擎
+# 留空即可：默认走免费免注册引擎链（百度 → 360 → Bing RSS，见 web_search.py），零配置可联网
+# 想用更干净的结果：博查 API（国内直付，注册送免费额度）
+#   申请：https://open.bochaai.com  → API Key管理
 BOCHA_API_KEY = ""
 
 # ============ ③ 行为参数 ============
-PERSONA_FILE = "persona.md"           # 人格文件（系统提示词）
+PERSONA_FILE = "persona_v2.md"        # 人格文件
 KNOWLEDGE_DIR = "knowledge"           # 知识库语料目录（放 .md/.txt/.json/.csv，可分子目录）
 INDEX_FILE = "index/bm25.pkl"         # 关键词检索索引缓存
 VECTOR_INDEX_FILE = "index/vectors.pkl"  # 语义向量索引缓存
 HISTORY_ROUNDS = 12                   # 带多少轮会话历史
-TOP_K = 5                             # 每次检索命中几条语料片段
+TOP_K = 10                             # 每次检索命中几条语料片段
 SEARCH_RESULTS = 5                    # 每次搜索取几条结果
 MAX_OUTPUT_CHARS = 1200               # 输出长度上限（呼应 persona 的简洁要求）
 
@@ -50,9 +50,12 @@ EMBEDDING_API_KEY = os.environ.get("SILICONFLOW_API_KEY", "") or os.environ.get(
 EMBEDDING_BASE_URL = ""               # provider=openai 时必填，其它可留空
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3")   # 留空则用该 provider 的默认模型
 EMBEDDING_BATCH = 16                  # 每次请求向量化的片段数
-RAG_FUSION = "rrf"                    # 融合方式：rrf（倒数排名融合）/ weighted（加权归一）
-RAG_WEIGHT_BM25 = 0.4                 # weighted 模式下关键词得分权重（其余给向量）
+RAG_FUSION = "weighted"               # 融合方式：rrf（倒数排名融合）/ weighted（加权归一）
+RAG_WEIGHT_BM25 = 0.5                 # weighted 模式下关键词得分权重（其余给向量）；扫权平台点见 eval/sweep_weights.json
 RAG_CANDIDATES = 20                   # 融合前的候选数量
+RAG_SYNONYMS = True                   # 同义词字典开关（expand_query，影响 BM25 路/兜底路径）。
+                                      # 2026-10-13：旧 12 条按开关实验删除（净伤 2 题），
+                                      # 换为 5 条经逐条验证的新词条（各救回 1 题、零误伤，BM25 路 +5 题）。
 
 # 可选：二次精排（免费额度：siliconflow 的 BAAI/bge-reranker-v2-m3）
 RAG_RERANK = False

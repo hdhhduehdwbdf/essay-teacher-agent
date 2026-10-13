@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-作文老师 Agent · 命令行入口
+叁月聚粮分身 · 命令行入口
 组装顺序：persona(system) → 知识库检索片段 → 会话历史 → 用户输入
 用法：
   python agent.py                # 交互对话
@@ -22,6 +22,13 @@ from llm import chat_with_tool_loop
 
 SYSTEM_TMPL = """{persona}
 
+==================== 长期记忆（关于当前用户的既有了解） ====================
+{memory}
+====================================================================================
+使用规则：
+- 记忆块为空则忽略本节；有内容时自然融入回答（如称呼、年级、弱项针对性），
+  不要逐条复述记忆，不要说"根据记忆"这类机械表述。
+
 ==================== 知识库检索结果（与本问题相关的老师语料片段） ====================
 {retrieved}
 ====================================================================================
@@ -33,6 +40,12 @@ SYSTEM_TMPL = """{persona}
 
 
 def build_messages(history, user_input, verbose=True, hits=None):
+    memory_block = ""
+    try:
+        import memory
+        memory_block = memory.recall(user_input)
+    except Exception:
+        pass
     # ① 知识库检索
     if hits is None:
         hits = knowledge_base.retrieve(user_input)
@@ -46,7 +59,7 @@ def build_messages(history, user_input, verbose=True, hits=None):
 
     persona = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), config.PERSONA_FILE),
                    encoding="utf-8").read()
-    system = SYSTEM_TMPL.format(persona=persona, retrieved=retrieved)
+    system = SYSTEM_TMPL.format(persona=persona, memory=memory_block or "（暂无长期记忆）", retrieved=retrieved)
 
     # ② 组装：system → 历史 → 本轮输入
     messages = [{"role": "system", "content": system}]
@@ -130,7 +143,7 @@ def main():
         return
 
     # 交互模式
-    print("作文老师 Agent（自建版）· 输入问题开始对话，exit 退出，/new 清空会话记忆")
+    print("叁月聚粮分身（自建版）· 输入问题开始对话，exit 退出，/new 清空会话记忆")
     print("-" * 60)
     while True:
         try:

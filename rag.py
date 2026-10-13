@@ -106,9 +106,21 @@ class HybridRetriever:
         bm25_ranked = self._bm25_indexed(query, cand)
         vec_ranked = self._vector_ranked(query, cand)
         ranked = self._fuse(bm25_ranked, vec_ranked, cand)
+
+        seen = {}
+        deduped = []
+        for idx, sc in ranked:
+            src = self.bm25.meta[idx][0]
+            cnt = seen.get(src, 0)
+            if cnt < 2:
+                deduped.append((idx, sc))
+                seen[src] = cnt + 1
+            if len(deduped) >= top_k * 2:
+                break
+
         results = [
-            {"source": self.bm25.meta[i][0], "text": self.bm25.meta[i][1], "score": round(sc, 4)}
-            for i, sc in ranked
+            {"source": self.bm25.meta[j][0], "text": self.bm25.meta[j][1], "score": round(sc2, 4)}
+            for j, sc2 in deduped
         ]
         if _cfg("RAG_RERANK", False) and results:
             results = _rerank(query, results) or results

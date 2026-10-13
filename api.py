@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import platform
+import re
 import shutil
 import threading
 import time
@@ -16,6 +17,7 @@ SESSION_LOCK = threading.Lock()
 START_TIME = time.time()
 
 HISTORY = []  # 当前会话记忆
+CHAT_LOCK = threading.Lock()  # 串行化对话：防止多请求交叉写 HISTORY/会话文件
 
 
 # ---------- 会话持久化 ----------
@@ -224,6 +226,18 @@ def chat(q):
     import knowledge_base
     import embeddings
     from llm import chat_with_tool_loop_collector
+    import memory
+    with CHAT_LOCK:
+        return _chat_inner(q, knowledge_base, embeddings, chat_with_tool_loop_collector)
+
+
+def _chat_inner(q, knowledge_base, embeddings, chat_with_tool_loop_collector):
+    import memory
+    memory.check_idle_summary()
+    # 显式"记住"指令：不走模型，直接写入
+    m = re.match(r"^(?:请?记住|帮我记住|别忘[了记])[：:，,\s]*(.+)$", q.strip())
+    if m:
+        memory.add(m.group(1).strip()[:200], "fact")
     steps = []
     hits = knowledge_base.retrieve(q)
     steps.append({"type": "retrieval", "text": f"检索模式: {embeddings.describe()}"})
@@ -237,4 +251,27 @@ def chat(q):
     HISTORY.append({"role": "user", "content": q})
     HISTORY.append({"role": "assistant", "content": reply})
     save_session()
+    # 抽取放后台线程：不阻塞用户看到回复，也和下一轮对话的 LLM 调用错开
+    threading.Thread(target=memory.maybe_extract, args=("default",), daemon=True).start()
     return steps, reply
+
+
+# ---------- 长期记忆管理 ----------
+
+def memory_list():
+    import memory
+    items = memory._load_all()
+    items.sort(key=lambda x: x.get("last_seen_at", ""), reverse=True)
+    return {"items": items}
+
+
+def memory_delete(req):
+    import memory
+    memory.delete(req.get("id") or "")
+    return 200, {"ok": True}
+
+
+def memory_clear(req=None):
+    import memory
+    memory.clear()
+    return 200, {"ok": True}
