@@ -11,6 +11,8 @@ import sys
 from io import BytesIO
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
+import queue
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -28,6 +30,7 @@ GET_ROUTES = {
     "/rag": lambda qs: (200, None, "rag.html"),
     "/star": lambda qs: (200, None, "star.html"),
     "/threads": lambda qs: (200, None, "threads.html"),
+    "/flows": lambda qs: (200, None, "flows.html"),
     "/api/stats": lambda qs: (200, api.stats(), None),
     "/api/system": lambda qs: (200, api.system(), None),
     "/api/sessions": lambda qs: (200, api.sessions_list(), None),
@@ -74,6 +77,35 @@ def wsgi_app(environ, start_response):
     handler.wfile = state["body"]
     handler.log_message = lambda *a: None
     handler.handle_expect_100 = lambda: True
+    if handler.command == "POST" and handler.path.startswith("/api/chat/stream"):
+        body_q = queue.Queue()
+
+        class _QWriter:
+            def write(self, b):
+                body_q.put(b)
+                return len(b)
+            def flush(self):
+                pass
+
+        def _run():
+            try:
+                handler.do_POST()
+            finally:
+                body_q.put(None)
+
+        handler.send_response = lambda code, message=None: None
+        handler.send_header = lambda k, v: state["headers"].append((k, v))
+        handler.end_headers = lambda: _start(state["status"] or "200 OK", state["headers"])
+        handler.wfile = _QWriter()
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        while True:
+            item = body_q.get()
+            if item is None:
+                break
+            yield item
+        t.join(timeout=5)
+        return
     if handler.command == "POST":
         handler.do_POST()
     elif handler.command in ("GET", "HEAD"):
@@ -84,6 +116,7 @@ def wsgi_app(environ, start_response):
 
 POST_ROUTES = {
     "/api/chat": "chat",
+    "/api/chat/stream": "chat_stream",
     "/api/search": "search",
     "/api/rebuild": "rebuild",
     "/api/delete": "file_delete",
@@ -144,6 +177,31 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json(500, {"error": f"{type(e).__name__}: {e}"})
 
+    def _sse(self, obj):
+        self.wfile.write(("data: " + json.dumps(obj, ensure_ascii=False) + "\n\n").encode("utf-8"))
+        self.wfile.flush()
+
+    def _chat_stream_post(self, req):
+        q = (req.get("message") or "").strip()
+        if req.get("action") == "reset":
+            self._json(200, api.history_clear())
+            return
+        if not q:
+            self._json(400, {"error": "empty"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        try:
+            api.chat_stream(q, lambda ev: self._sse(ev))
+        except Exception as e:
+            try:
+                self._sse({"type": "error", "error": f"{type(e).__name__}: {e}"})
+            except Exception:
+                pass
+
     def do_POST(self):
         try:
             fn_name = POST_ROUTES.get(self.path)
@@ -152,6 +210,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             n = int(self.headers.get("Content-Length", 0))
             req = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+            if self.path == "/api/chat/stream":
+                self._chat_stream_post(req)
+                return
             if self.path == "/api/chat":
                 q = (req.get("message") or "").strip()
                 if req.get("action") == "reset":
@@ -178,8 +239,29 @@ class Handler(BaseHTTPRequestHandler):
             self._json(500, {"error": f"{type(e).__name__}: {e}"})
 
 
+def _warmup():
+    """后台预热：索引/检索器/embedding/LLM 连接，不阻塞服务启动。"""
+    import time
+    time.sleep(0.5)
+    try:
+        import knowledge_base, rag, embeddings
+        knowledge_base.get_engine()
+        rag.get_retriever()
+        if embeddings.available():
+            embeddings.embed_query("预热")
+        try:
+            from llm import chat
+            chat([{"role": "user", "content": "1"}], use_tools=False, max_tokens=1)
+        except Exception:
+            pass
+        print("[预热] 检索与模型连接已就绪")
+    except Exception as e:
+        print(f"[预热] 失败（不影响服务）：{type(e).__name__}: {e}")
+
+
 if __name__ == "__main__":
     api.load_session()
+    threading.Thread(target=_warmup, daemon=True).start()
     port = int(os.environ.get("PORT", "8778"))
     host = os.environ.get("HOST", "127.0.0.1")  # 上线时设 HOST=0.0.0.0
     try:

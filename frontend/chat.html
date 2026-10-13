@@ -201,25 +201,34 @@ createApp({
     function renderMarkdown(text) {
       let s = String(text || '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      s = s.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
-        '<pre><code>' + code.trim() + '</code></pre>');
-      s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+      // 1) 先把代码抽成占位符，防止内部内容被后续规则二次转换
+      const stash = [];
+      const keep = (html) => '\u0000' + (stash.push(html) - 1) + '\u0000';
+      s = s.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) =>
+        keep('<pre><code>' + code.trim() + '</code></pre>'));
+      s = s.replace(/`([^`\n]+)`/g, (_, code) => keep('<code>' + code + '</code>'));
+      // 2) 块级与行内转换（此时正文里已无代码内容）
       s = s.replace(/^### (.+)$/gm, '<h3>$1</h3>');
       s = s.replace(/^## (.+)$/gm, '<h2>$1</h2>');
       s = s.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-      s = s.replace(/\*\*([^]+?)\*\*/g, '<strong>$1</strong>');
-      s = s.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
+      s = s.replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/\*(?=\S)([^*\n]+?)(?<=\S)\*/g, '<em>$1</em>');
+      s = s.replace(/~~([^~\n]+?)~~/g, '<del>$1</del>');
+      s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+        (_, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="underline text-amber-400">${label}</a>`);
       s = s.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
       s = s.replace(/^- (.+)$/gm, '<li>$1</li>');
       s = s.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
       s = s.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, '<ul>$1</ul>');
+      // 3) 按行包段落，占位符行（块级元素）原样保留
       const lines = s.split('\n');
       const out = [];
       for (const line of lines) {
-        if (line.startsWith('<')) { out.push(line); }
+        if (line.startsWith('<') || /^\u0000\d+\u0000$/.test(line.trim())) { out.push(line); }
         else if (line.trim()) { out.push('<p>' + line + '</p>'); }
       }
-      return out.join('\n');
+      // 3) 还原代码占位符
+      return out.join('\n').replace(/\u0000(\d+)\u0000/g, (_, i) => stash[i]);
     }
 
     function startHintCycle() {
@@ -266,16 +275,19 @@ createApp({
       startHintCycle();
       renderIcons(); scrollBottom();
       try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text })
-        });
-        const data = await res.json();
-        if (res.ok && !data.error) {
-          messages.value.push({ role: 'assistant', text: data.reply || '', steps: Array.isArray(data.steps) ? data.steps : [] });
-        } else {
-          error.value = data.error || ('HTTP ' + res.status);
+        const done = await sendStream(text);
+        if (!done) {
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text })
+          });
+          const data = await res.json();
+          if (res.ok && !data.error) {
+            messages.value.push({ role: 'assistant', text: data.reply || '', steps: Array.isArray(data.steps) ? data.steps : [] });
+          } else {
+            error.value = data.error || ('HTTP ' + res.status);
+          }
         }
       } catch (e) {
         error.value = '网络不太顺畅，请重试';
@@ -284,6 +296,47 @@ createApp({
         stopHintCycle();
         renderIcons(); scrollBottom();
       }
+    }
+
+    async function sendStream(text) {
+      let res;
+      try {
+        res = await fetch('/api/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+      } catch (e) { return false; }
+      if (!res.ok || !res.body) return false;
+      const m = { role: 'assistant', text: '', steps: [] };
+      messages.value.push(m);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const raw = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 2);
+          if (!raw.startsWith('data:')) continue;
+          let ev;
+          try { ev = JSON.parse(raw.slice(5).trim()); } catch (e) { continue; }
+          if (ev.type === 'steps') {
+            m.steps = Array.isArray(ev.steps) ? ev.steps : [];
+            stepsOpen.value[messages.value.indexOf(m)] = true;
+          } else if (ev.type === 'delta') {
+            m.text += ev.text || '';
+            scrollBottom();
+          } else if (ev.type === 'error') {
+            error.value = ev.error || '流式响应出错';
+          }
+        }
+      }
+      renderIcons(); scrollBottom();
+      return true;
     }
 
     function retrySend() {
