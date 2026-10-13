@@ -60,7 +60,6 @@ EMBEDDING_BATCH = 16                  # 每次请求向量化的片段数
 RAG_FUSION = "weighted"               # 融合方式：rrf（倒数排名融合）/ weighted（加权归一）
 RAG_WEIGHT_BM25 = 0.5                 # weighted 模式下关键词得分权重（其余给向量）；扫权平台点见 eval/sweep_weights.json
 RAG_CANDIDATES = 20                   # 融合前的候选数量
-RAG_SYNONYMS = True                   # 同义词字典开关（expand_query，影响 BM25 路/兜底路径）。
                                       # 2026-10-13：旧 12 条按开关实验删除（净伤 2 题），
                                       # 换为 5 条经逐条验证的新词条（各救回 1 题、零误伤，BM25 路 +5 题）。
 

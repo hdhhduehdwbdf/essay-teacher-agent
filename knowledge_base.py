@@ -17,23 +17,6 @@ CHUNK_OVERLAP = 80    # 片间重叠
 TEXT_EXTS = (".md", ".txt", ".json", ".csv")
 BINARY_EXTS = (".pdf", ".docx")
 
-# 术语扩展：查询词 → 语料中实际出现的说法（只在检索时扩查询，不改语料）
-SYNONYMS = {
-    "高级感": ["语言升格", "升格", "文采"],
-    "思辨": ["矛盾二分", "矛盾", "二分"],
-    "审题": ["立意", "审题立意"],
-    "素材": ["人物素材", "作文素材", "例子", "例证"],
-    "开头": ["开头句模", "凤头", "开篇"],
-    "结尾": ["豹尾", "收束"],
-    "标题": ["拟题", "作文标题"],
-    "分论点": ["结构", "框架"],
-    "人物": ["李子柒", "孔乙己", "人物素材"],
-    "批判": ["批判性", "思辨", "矛盾二分"],
-    "提分": ["55+", "高分", "一类文"],
-    "作文": ["写作", "高考作文"],
-}
-
-
 def tokenize(text):
     """中文 bigram + 英文单词混合分词"""
     text = re.sub(r"\s+", " ", text.lower())
@@ -51,17 +34,6 @@ def tokenize(text):
             for i in range(len(seg) - 1):
                 tokens.append(seg[i:i + 2])
     return tokens
-
-
-def expand_query(query):
-    """同义词扩展：命中术语表的词在查询里追加同义说法，提升 BM25 召回。"""
-    expanded = query
-    for term, syns in SYNONYMS.items():
-        if term in query:
-            for s in syns:
-                if s not in expanded:
-                    expanded += " " + s
-    return expanded
 
 
 def read_docs():
@@ -164,7 +136,7 @@ class BM25:
         self.idf = {t: math.log((n - d + 0.5) / (d + 0.5) + 1) for t, d in self.df.items()}
 
     def search(self, query, top_k=TOP_K):
-        q = tokenize(expand_query(query))
+        q = tokenize(query)
         scores = [0.0] * len(self.corpus_tokens)
         for i, toks in enumerate(self.corpus_tokens):
             tf = {}
