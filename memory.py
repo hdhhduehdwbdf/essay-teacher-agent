@@ -12,8 +12,7 @@ STATE_FILE = os.path.join(BASE_DIR, "memory", "state.json")
 
 EXPIRE_DAYS = 180          # fact 类型半年没被"再见到"就过期
 EXTRACT_EVERY = 24         # 每 24 条消息（12 轮）触发一次模型抽取
-CAPS = {"profile": 20, "preference": 20, "fact": 50, "summary": 100}
-IDLE_SUMMARY_SEC = 30 * 60  # 闲置 30 分钟视为会话结束
+CAPS = {"profile": 20, "preference": 20, "fact": 50}
 EXTRACT_LOCK = threading.Lock()
 
 
@@ -193,28 +192,6 @@ def _extract_inner(session_id="default"):
         return 0
 
 
-def summarize_new(session_id="default"):
-    """会话结束：把还没摘要过的新消息压缩成一条 summary。只存新消息。"""
-    hist = _session_history(session_id)
-    st = _load_state()
-    fresh = hist[st.get("summarized", 0):]
-    if len(fresh) < 2:
-        return
-    text = "\n".join(f"{m['role']}: {str(m['content'])[:150]}" for m in fresh[-20:])
-    try:
-        from llm import chat as llm_chat
-        resp = llm_chat([
-            {"role": "system", "content": "把这段对话压缩成一条 60 字以内的中文摘要，只输出摘要本身。"},
-            {"role": "user", "content": text}], use_tools=False)
-        summary = (resp.get("content") or "").strip()[:200]
-        if summary:
-            add(summary, "summary", session_id, 0.6)
-    except Exception:
-        return
-    st["summarized"] = len(hist)
-    _save_state(st)
-
-
 def _session_history(session_id):
     try:
         p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -229,12 +206,3 @@ def touch():
     st = _load_state()
     st["last_activity"] = _now()
     _save_state(st)
-
-
-def check_idle_summary(session_id="default"):
-    """对话开始时检查：距上次活动超 30 分钟就把上一场会话的剩余新消息做摘要。"""
-    st = _load_state()
-    last = st.get("last_activity", "")
-    if last and time.time() - _ts(last) > IDLE_SUMMARY_SEC:
-        summarize_new(session_id)
-    touch()

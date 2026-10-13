@@ -231,9 +231,51 @@ def chat(q):
         return _chat_inner(q, knowledge_base, embeddings, chat_with_tool_loop_collector)
 
 
+
+def chat_stream(q, emit):
+    """流式对话：通过 emit(dict) 实时推送 steps/delta 事件，返回完整回复。"""
+    import knowledge_base
+    import embeddings
+    from llm import chat_with_tool_loop_stream
+    with CHAT_LOCK:
+        return _chat_stream_inner(q, emit, knowledge_base, embeddings, chat_with_tool_loop_stream)
+
+
+def _chat_stream_inner(q, emit, knowledge_base, embeddings, chat_with_tool_loop_stream):
+    import memory
+    memory.touch()
+    m = re.match(r"^(?:请?记住|帮我记住|别忘[了记])[：:，,\s]*(.+)$", q.strip())
+    if m:
+        memory.add(m.group(1).strip()[:200], "fact")
+    steps = []
+    hits = knowledge_base.retrieve(q)
+    steps.append({"type": "retrieval", "text": f"检索模式: {embeddings.describe()}"})
+    for h in hits[:3]:
+        steps.append({"type": "retrieval",
+                      "text": f"知识库命中: {h['source']}（相关度 {h['score']}）"})
+    if not hits:
+        steps.append({"type": "retrieval", "text": "知识库未命中（空库或无相关语料）"})
+    emit({"type": "steps", "steps": steps})
+    messages = agent.build_messages(HISTORY, q, verbose=False, hits=hits)
+    reply_parts = []
+
+    def on_delta(text):
+        reply_parts.append(text)
+        emit({"type": "delta", "text": text})
+
+    reply = chat_with_tool_loop_stream(messages, steps, on_delta)
+    if steps:
+        emit({"type": "steps", "steps": steps})
+    HISTORY.append({"role": "user", "content": q})
+    HISTORY.append({"role": "assistant", "content": reply})
+    save_session()
+    threading.Thread(target=memory.maybe_extract, args=("default",), daemon=True).start()
+    emit({"type": "done", "reply": reply})
+    return reply
+
 def _chat_inner(q, knowledge_base, embeddings, chat_with_tool_loop_collector):
     import memory
-    memory.check_idle_summary()
+    memory.touch()
     # 显式"记住"指令：不走模型，直接写入
     m = re.match(r"^(?:请?记住|帮我记住|别忘[了记])[：:，,\s]*(.+)$", q.strip())
     if m:
