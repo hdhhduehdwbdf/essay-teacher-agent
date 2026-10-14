@@ -6,6 +6,8 @@ import re
 import time
 import threading
 
+import store
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_FILE = os.path.join(BASE_DIR, "memory", "long_term.jsonl")
 STATE_FILE = os.path.join(BASE_DIR, "memory", "state.json")
@@ -28,17 +30,11 @@ def _ts(s):
 
 
 def _load_state():
-    try:
-        with open(STATE_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {"processed": 0, "summarized": 0, "last_activity": ""}
+    return store.kv_get("memory_state", {"processed": {}, "last_activity": ""})
 
 
 def _save_state(st):
-    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(st, f, ensure_ascii=False)
+    store.kv_put("memory_state", st)
 
 
 def _owner(it):
@@ -47,26 +43,17 @@ def _owner(it):
 
 
 def _load_all(user=None):
-    items = []
-    if os.path.isfile(MEMORY_FILE):
-        with open(MEMORY_FILE, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        it = json.loads(line)
-                        if user is None or _owner(it) == user:
-                            items.append(it)
-                    except Exception:
-                        pass
+    items = store.memory_all(user)
+    for it in items:
+        it["expired"] = bool(it.get("expired"))
     return items
 
 
 def _save_all(items):
-    os.makedirs(os.path.dirname(MEMORY_FILE), exist_ok=True)
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-        for it in items:
-            f.write(json.dumps(it, ensure_ascii=False) + "\n")
+    """整表覆盖（迁移/测试用）。正常写入走 memory_put 单条 upsert。"""
+    store.memory_clear(None)
+    for it in items:
+        store.memory_put(it)
 
 
 def _expired(it):
@@ -118,7 +105,7 @@ def add(content, mtype, user="admin", source_session="default", confidence=0.9):
         hit["user"] = user
         created = False
     else:
-        items.append({
+        hit = {
             "id": f"m{time.strftime('%Y%m%d_%H%M%S')}_{len(items):04d}",
             "type": mtype,
             "content": content,
@@ -128,36 +115,35 @@ def add(content, mtype, user="admin", source_session="default", confidence=0.9):
             "last_seen_at": now,
             "confidence": confidence,
             "expired": False,
-        })
+        }
+        items.append(hit)
         created = True
     # 容量上限：按用户分桶，超限淘汰最旧且低置信
+    dropped = []
     for t, cap in CAPS.items():
         group = sorted([x for x in items if x["type"] == t and _owner(x) == user],
                        key=lambda x: (_ts(x.get("last_seen_at", "")), x.get("confidence", 0)))
         while len(group) > cap:
             worst = group.pop(0)
             items = [x for x in items if x["id"] != worst["id"]]
-    _save_all(items)
+            dropped.append(worst["id"])
+    store.memory_put(hit)
+    for mid in dropped:
+        store.memory_delete(mid)
     return created if hit is None else False
 
 
 def delete(mid, user=None):
     """user 非空时只允许删该用户自己的条目；None 表示管理员全权。"""
-    items = _load_all()
-    keep = []
-    for x in items:
-        if x["id"] == mid and (user is None or _owner(x) == user):
-            continue
-        keep.append(x)
-    items = keep
-    _save_all(items)
+    if user is not None:
+        rows = [x for x in _load_all() if x["id"] == mid]
+        if not rows or _owner(rows[0]) != user:
+            return
+    store.memory_delete(mid)
 
 
 def clear(user=None):
-    if user is None:
-        _save_all([])
-    else:
-        _save_all([x for x in _load_all() if _owner(x) != user])
+    store.memory_clear(user)
 
 
 def recall(query, user="admin", limit=3):
@@ -219,13 +205,11 @@ def _extract_inner(user="admin", sid="default"):
 
 
 def _session_history(session_id):
-    try:
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "sessions", session_id + ".json")
-        with open(p, encoding="utf-8") as f:
-            return json.load(f).get("history", [])
-    except Exception:
+    """session_id 形如 user/sid，直接读库。"""
+    if "/" not in session_id:
         return []
+    user, sid = session_id.split("/", 1)
+    return store.session_load(user, sid)
 
 
 def touch():

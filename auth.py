@@ -5,16 +5,15 @@
 import base64
 import hashlib
 import hmac
-import json
 import os
 import secrets
 import threading
 import time
 
+import store
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-USERS_FILE = os.path.join(DATA_DIR, "users.json")
-USAGE_FILE = os.path.join(DATA_DIR, "usage.json")
 SECRET_FILE = os.path.join(DATA_DIR, "secret.key")
 TOKEN_TTL = 7 * 86400
 THROTTLE_INTERVAL = 2
@@ -28,22 +27,6 @@ _FAILS = {}
 
 def _ensure_dir():
     os.makedirs(DATA_DIR, exist_ok=True)
-
-
-def _load(path, default):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
-
-
-def _save(path, obj):
-    _ensure_dir()
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False)
-    os.replace(tmp, path)
 
 
 def _secret():
@@ -65,14 +48,12 @@ def _hash(pw, salt):
 
 def init_admin():
     """首次启动时创建管理员账号。密码优先取环境变量 ADMIN_PASSWORD。"""
-    users = _load(USERS_FILE, {})
-    if users:
+    store.init_schema()
+    if store.users_all():
         return
     pw = os.environ.get("ADMIN_PASSWORD") or secrets.token_hex(6)
     salt = secrets.token_hex(8)
-    users["admin"] = {"salt": salt, "hash": _hash(pw, salt), "role": "admin",
-                      "quota": int(os.environ.get("DAILY_QUOTA", "30")), "created": _now()}
-    _save(USERS_FILE, users)
+    store.user_put("admin", salt, _hash(pw, salt), "admin", int(os.environ.get("DAILY_QUOTA", "30")))
     if not os.environ.get("ADMIN_PASSWORD"):
         print(f"[auth] 初始管理员账号已创建 -> 用户名 admin 密码 {pw}（请尽快在管理台修改）")
 
@@ -82,8 +63,7 @@ def _now():
 
 
 def users():
-    with _LOCK:
-        return _load(USERS_FILE, {})
+    return store.users_all()
 
 
 def role(username):
@@ -97,14 +77,11 @@ def create_user(username, password, role="user", quota=None):
     if len(str(password or "")) < 6:
         return 400, {"error": "密码至少 6 位"}
     with _LOCK:
-        users = _load(USERS_FILE, {})
-        if username in users:
+        if username in store.users_all():
             return 400, {"error": "用户名已存在"}
         salt = secrets.token_hex(8)
-        users[username] = {"salt": salt, "hash": _hash(str(password), salt),
-                           "role": role, "quota": int(quota or os.environ.get("DAILY_QUOTA", "30")),
-                           "created": _now()}
-        _save(USERS_FILE, users)
+        store.user_put(username, salt, _hash(str(password), salt), role,
+                       int(quota or os.environ.get("DAILY_QUOTA", "30")))
     return 200, {"ok": True}
 
 
@@ -112,21 +89,18 @@ def set_password(username, password):
     if len(str(password or "")) < 6:
         return 400, {"error": "密码至少 6 位"}
     with _LOCK:
-        users = _load(USERS_FILE, {})
-        if username not in users:
+        if username not in store.users_all():
             return 404, {"error": "用户不存在"}
-        users[username]["hash"] = _hash(str(password), users[username]["salt"])
-        _save(USERS_FILE, users)
+        salt = store.users_all()[username]["salt"]
+        store.user_set_password(username, _hash(str(password), salt))
     return 200, {"ok": True}
 
 
 def set_quota(username, quota):
     with _LOCK:
-        users = _load(USERS_FILE, {})
-        if username not in users:
+        if username not in store.users_all():
             return 404, {"error": "用户不存在"}
-        users[username]["quota"] = int(quota)
-        _save(USERS_FILE, users)
+        store.user_set_quota(username, quota)
     return 200, {"ok": True}
 
 
@@ -134,11 +108,9 @@ def delete_user(username):
     if username == "admin":
         return 400, {"error": "不能删除管理员"}
     with _LOCK:
-        users = _load(USERS_FILE, {})
-        if username not in users:
+        if username not in store.users_all():
             return 404, {"error": "用户不存在"}
-        del users[username]
-        _save(USERS_FILE, users)
+        store.user_delete(username)
     return 200, {"ok": True}
 
 
@@ -231,27 +203,14 @@ def throttled(username):
 
 def usage_check(username):
     """返回 (ok, used, quota)。ok=False 表示已超限。调用方需在对话成功后调 usage_count。"""
-    with _LOCK:
-        u = users().get(username)
-        quota = u.get("quota", 30) if u else 30
-        today = time.strftime("%Y-%m-%d")
-        usage = _load(USAGE_FILE, {})
-        if usage.get("date") != today:
-            usage = {"date": today, "counts": {}}
-        used = usage.get("counts", {}).get(username, 0)
-        return used < quota, used, quota
+    u = store.users_all().get(username)
+    quota = u.get("quota", 30) if u else 30
+    used = store.usage_count(time.strftime("%Y-%m-%d"), username)
+    return used < quota, used, quota
 
 
 def usage_count(username):
-    with _LOCK:
-        today = time.strftime("%Y-%m-%d")
-        usage = _load(USAGE_FILE, {})
-        if usage.get("date") != today:
-            usage = {"date": today, "counts": {}}
-        c = usage.setdefault("counts", {})
-        c[username] = c.get(username, 0) + 1
-        _save(USAGE_FILE, usage)
-        return c[username]
+    return store.usage_add(time.strftime("%Y-%m-%d"), username)
 
 
 def status(username):

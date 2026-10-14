@@ -34,3 +34,22 @@
 - [ ] `knowledge/` 私有语料确认是否允许公开访问
 - [ ] 管理页 `/admin` 建议加访问密码后再上线
 - [ ] Git remote 里不要带 GitHub token（检查 `.git/config`）
+
+
+## P2 · 多实例部署（已支持）
+
+状态全部在数据库里（默认 SQLite 单库多进程；生产用 Postgres：设 DATABASE_URL），应用无状态，可跑多实例：
+
+1. 迁移旧 JSON 状态（首次执行一次）：
+   - python migrate.py
+2. 生产模式（web 与 worker 分开扩缩容）：
+   - DATABASE_URL=postgresql://... python migrate.py
+   - EMBED_WORKERS=0，起 N 个 web 实例（任意 WSGI 服务器/负载均衡后面）
+   - 独立 worker：python worker.py（WORKERS=8 可调，可多机部署）
+3. 本地开发（单命令最省事）：
+   - python web_server.py  （内嵌 2 个 worker 线程）
+4. Postgres 需要：pip install "psycopg[binary]"（已加入 requirements）
+
+架构：web 实例只做 HTTP + SSE 转发；对话任务写入 jobs 表，worker 认领执行，
+token 增量写 job_events，SSE 按游标轮询推送。同一会话 FIFO、跨会话并行由
+DB 认领规则保证；任何实例可服务任何连接。

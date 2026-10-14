@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import api  # noqa: E402
 import auth  # noqa: E402
+import store  # noqa: E402
+import worker  # noqa: E402
 
 FRONTEND = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
 VENDOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor")
@@ -323,19 +325,19 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/auth/logout":
                 self._json_ex(200, {"ok": True}, [("Set-Cookie", auth.clear_cookie())])
                 return
-            fn = POST_ROUTES.get(path)
-            if not fn:
-                self._json(404, {"error": "not found"})
-                return
             user = auth.from_headers(self.headers)
             if user is None:
                 self._json(401, {"need_login": True, "error": "未登录"})
                 return
-            if path in ADMIN_ONLY_POST and auth.role(user) != "admin":
-                self._json(403, {"error": "仅管理员可操作"})
-                return
             if path == "/api/chat/stream":
                 self._chat_stream_post(req, user)
+                return
+            fn = POST_ROUTES.get(path)
+            if not fn:
+                self._json(404, {"error": "not found"})
+                return
+            if path in ADMIN_ONLY_POST and auth.role(user) != "admin":
+                self._json(403, {"error": "仅管理员可操作"})
                 return
             if path == "/api/chat":
                 q = (req.get("message") or "").strip()
@@ -347,8 +349,8 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if not self._chat_gate(user):
                     return
-                steps, reply = api.chat(req, user)
-                self._json(200, {"reply": reply, "steps": steps})
+                code, payload = api.chat(req, user)
+                self._json(code, payload)
                 return
             if path == "/api/search" and not (req.get("message") or "").strip():
                 self._json(400, {"error": "empty"})
@@ -382,7 +384,11 @@ def _warmup():
 
 
 if __name__ == "__main__":
+    store.init_schema()
     auth.init_admin()
+    if os.environ.get("EMBED_WORKERS", "1") != "0":
+        worker.start_threads(int(os.environ.get("EMBED_WORKER_THREADS", "2")))
+        print(f"[worker] 已内嵌 2 个消费线程（EMBED_WORKERS=0 可关闭，改用独立 worker 进程）")
     threading.Thread(target=_warmup, daemon=True).start()
     port = int(os.environ.get("PORT", "8778"))
     host = os.environ.get("HOST", "127.0.0.1")  # 上线时设 HOST=0.0.0.0
