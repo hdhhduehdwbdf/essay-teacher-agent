@@ -17,7 +17,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
 START_TIME = time.time()
 
-CURRENT = {}  # user -> 当前会话 id（进程内缓存，权威数据在库里）
+CURRENT = {}  # user -> 当前会话 id（进程内缓存；权威值存 kv，供多实例共用）
 
 
 # ---------- 会话持久化 ----------
@@ -31,25 +31,41 @@ def load_session(user, sid):
 
 
 def _current_sid(user):
-    sid = CURRENT.get(user)
+    sid = CURRENT.get(user) or store.kv_get(f"cur:{user}")
     if sid:
+        CURRENT[user] = sid
         return sid
     rows = store.sessions_of(user)
     sid = rows[0]["id"] if rows else "default"
-    CURRENT[user] = sid
+    _set_current_sid(user, sid)
     return sid
+
+
+def _set_current_sid(user, sid):
+    CURRENT[user] = sid
+    store.kv_put(f"cur:{user}", sid)
 
 
 # ---------- 只读接口 ----------
 
-def stats():
+def stats(user=None, is_admin=True):
     import knowledge_base
     import embeddings
     eng = knowledge_base.get_engine()
     return {"files": len(knowledge_base.read_docs()),
             "chunks": len(eng.meta),
             "mode": embeddings.describe(),
-            "history": _total_turns()}
+            "history": _total_turns() if is_admin else _user_turns(user or "")}
+
+
+def _user_turns(user):
+    n = 0
+    for r in store.sessions_of(user):
+        try:
+            n += len(json.loads(r.get("history") or "[]"))
+        except Exception:
+            pass
+    return n
 
 
 def _total_turns():
@@ -193,14 +209,14 @@ def session_current(user):
 
 def session_new(user, _req=None):
     new_sid = "s" + time.strftime("%Y%m%d-%H%M%S")
-    CURRENT[user] = new_sid
+    _set_current_sid(user, new_sid)
     save_session(user, new_sid, [])
     return 200, {"id": new_sid}
 
 
 def session_switch(user, req):
     sid = str(req.get("id") or "default")
-    CURRENT[user] = sid
+    _set_current_sid(user, sid)
     if all(r["id"] != sid for r in store.sessions_of(user)):
         save_session(user, sid, [])
     return 200, {"id": sid}
@@ -211,7 +227,7 @@ def session_delete(user, req):
     if not sid:
         return 400, {"error": "empty"}
     if sid == _current_sid(user):
-        CURRENT[user] = "default"
+        _set_current_sid(user, "default")
     store.session_delete(user, sid)
     return 200, {"ok": True, "id": CURRENT.get(user, "default")}
 

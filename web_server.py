@@ -37,7 +37,7 @@ GET_ROUTES = {
     "/memory-plan": lambda qs, user: (200, None, "memory_plan.html"),
     "/ops": lambda qs, user: (200, None, "ops.html"),
     "/api/auth/status": lambda qs, user: (200, api.auth_status(user), None),
-    "/api/stats": lambda qs, user: (200, api.stats(), None),
+    "/api/stats": lambda qs, user: (200, api.stats(user, auth.role(user) == "admin"), None),
     "/api/system": lambda qs, user: (200, api.system(), None),
     "/api/metrics": lambda qs, user: (200, api.metrics(), None),
     "/api/sessions": lambda qs, user: (200, api.sessions_list(user, auth.role(user) == "admin"), None),
@@ -53,7 +53,7 @@ GET_ROUTES = {
 ADMIN_ONLY_PAGES = ("/admin", "/ops")
 ADMIN_ONLY_API = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
                   "/api/memory/delete", "/api/memory/clear", "/api/memory", "/api/files", "/api/categories",
-                  "/api/metrics")
+                  "/api/metrics", "/api/admin/users")
 
 
 class _Headers(dict):
@@ -194,7 +194,7 @@ POST_ROUTES = {
 }
 
 ADMIN_ONLY_POST = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
-                   "/api/memory/delete", "/api/memory/clear", "/api/admin/users/create",
+                   "/api/memory/delete", "/api/memory/clear", "/api/admin/users", "/api/admin/users/create",
                    "/api/admin/users/password", "/api/admin/users/quota", "/api/admin/users/delete",
                    "/api/admin/users/approve", "/api/admin/users/reject")
 

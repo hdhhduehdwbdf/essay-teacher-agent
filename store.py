@@ -164,6 +164,11 @@ def session_delete(user, sid):
     _exec("DELETE FROM sessions WHERE user=? AND sid=?", (user, sid))
 
 
+def sessions_purge(user):
+    """删除该用户的全部会话（用户注销时使用）。"""
+    _exec("DELETE FROM sessions WHERE user=?", (user,))
+
+
 def sessions_of(user):
     return _rows("SELECT sid AS id, updated, history FROM sessions WHERE user=? ORDER BY updated DESC", (user,))
 
@@ -212,6 +217,11 @@ def usage_add(day, user, delta=1):
     _exec("DELETE FROM usage WHERE day=? AND user=?", (day, user))
     _exec("INSERT INTO usage(day,user,n) VALUES(?,?,?)", (day, user, n))
     return n
+
+
+def usage_purge(user):
+    """删除该用户所有日期的用量记录（用户注销时使用）。"""
+    _exec("DELETE FROM usage WHERE user=?", (user,))
 
 
 # ---------- 键值（抽取进度等） ----------
