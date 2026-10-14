@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 · 叁月聚粮作文老师</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+:root { --bg:#F8F9FA; --ink:#1A1D21; --ink-soft:#737A84; --line:#E4E7EB; --card:#FFF; }
+body { font-family:'PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei UI',system-ui,sans-serif; background:var(--bg); }
+.serif { font-family:'Noto Serif SC',serif; }
+</style>
+</head>
+<body class="h-full text-[var(--ink)] antialiased">
+<div class="min-h-full flex items-center justify-center px-6">
+  <div class="w-full max-w-sm">
+    <p class="mb-1 text-sm text-[var(--ink-soft)]">叁月聚粮</p>
+    <h1 class="serif text-2xl font-semibold mb-6">作文老师 · 登录</h1>
+    <form id="form" class="space-y-3">
+      <input id="username" placeholder="用户名" required
+        class="w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-3 py-2.5 text-sm outline-none focus:border-[var(--ink-soft)]">
+      <input id="password" type="password" placeholder="密码" required
+        class="w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-3 py-2.5 text-sm outline-none focus:border-[var(--ink-soft)]">
+      <p id="error" class="hidden text-sm text-red-500"></p>
+      <button type="submit" id="btn"
+        class="w-full rounded-lg bg-[var(--ink)] text-white py-2.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">登录</button>
+    </form>
+    <p class="mt-4 text-xs text-[var(--ink-soft)]">账号由管理员创建，如无账号请联系管理员开通。</p>
+  </div>
+</div>
+<script>
+const form = document.getElementById('form');
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btn');
+  const err = document.getElementById('error');
+  err.classList.add('hidden');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) { location.href = '/'; return; }
+    err.textContent = data.error || '登录失败';
+    err.classList.remove('hidden');
+  } catch (e2) {
+    err.textContent = '网络错误，请重试';
+    err.classList.remove('hidden');
+  }
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>

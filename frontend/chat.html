@@ -52,6 +52,10 @@ textarea:focus { outline:none; }
     </div>
     <div class="flex items-center gap-2">
       <span v-if="messages.length > 2" class="hidden sm:inline text-[11px] text-[var(--ink-faint)]">{{ Math.ceil(messages.length/2) }} 轮对话</span>
+      <span class="text-[11px] text-[var(--ink-faint)]">{{ me.user }}</span>
+      <button @click="logout" title="退出登录" class="inline-flex items-center rounded-full border border-transparent px-2 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)]">
+        <i data-lucide="log-out" class="h-3.5 w-3.5"></i>
+      </button>
       <select v-model="currentId" @change="switchSession" class="rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-xs text-[var(--ink-soft)] max-w-[9rem]">
         <option v-for="s in sessions" :key="s.id" :value="s.id">{{ s.label }}</option>
       </select>
@@ -177,11 +181,19 @@ textarea:focus { outline:none; }
 <script>
 const { createApp, ref, nextTick, onMounted } = Vue;
 
+const _origFetch = window.fetch;
+window.fetch = async function (url, opts) {
+  const res = await _origFetch(url, opts);
+  if (res && res.status === 401) { location.href = '/login'; }
+  return res;
+};
+
 createApp({
   setup() {
     const messages = ref([]);
     const sessions = ref([]);
     const currentId = ref('default');
+    const me = ref({});
     const draft = ref('');
     const loading = ref(false);
     const error = ref('');
@@ -393,6 +405,18 @@ createApp({
       } catch(e) {}
     }
 
+    async function loadMe() {
+      try {
+        const res = await fetch('/api/auth/status');
+        if (res.ok) me.value = await res.json();
+      } catch(e) {}
+    }
+
+    async function logout() {
+      try { await fetch('/api/auth/logout', { method: 'POST' }); } catch(e) {}
+      location.href = '/login';
+    }
+
     async function newSession() {
       try {
         const res = await fetch('/api/session/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -456,12 +480,13 @@ createApp({
 
     onMounted(() => {
       renderIcons();
+      loadMe();
       restoreHistory();
       loadSessions();
       inp.value && inp.value.focus();
     });
 
-  return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession };
+  return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession, me, loadMe, logout };
   }
 }).mount('#app');
 </script>

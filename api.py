@@ -10,47 +10,85 @@ import threading
 import time
 
 import agent  # noqa: E402
+import auth  # noqa: E402
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
 SESSION_LOCK = threading.Lock()
 START_TIME = time.time()
 
-HISTORY = []  # 当前会话记忆
-CURRENT = {"id": "default"}  # 当前会话 id
-CHAT_LOCK = threading.Lock()  # 串行化对话：防止多请求交叉写 HISTORY/会话文件
+CURRENT = {}  # user -> 当前会话 id
+_LOCKS = {}  # (user, sid) -> threading.Lock
+_LOCKS_GUARD = threading.Lock()
 
 
 # ---------- 会话持久化 ----------
 
-def _session_path(sid):
+def _user_dir(user):
+    safe = "".join(c for c in user if c.isalnum() or c in "-_") or "anon"
+    return os.path.join(SESSIONS_DIR, safe)
+
+
+def _session_path(user, sid):
+    safe_user = "".join(c for c in user if c.isalnum() or c in "-_") or "anon"
+    safe_sid = "".join(c for c in sid if c.isalnum() or c in "-_") or "default"
+    return os.path.join(SESSIONS_DIR, safe_user, safe_sid + ".json")
+
+
+def _session_lock(user, sid):
+    key = f"{user}__{sid}"
+    with _LOCKS_GUARD:
+        if key not in _LOCKS:
+            if len(_LOCKS) > 500:
+                _LOCKS.clear()
+            _LOCKS[key] = threading.Lock()
+        return _LOCKS[key]
+
+
+def _legacy_session_path(sid):
     safe = "".join(c for c in sid if c.isalnum() or c in "-_") or "default"
     return os.path.join(SESSIONS_DIR, safe + ".json")
 
 
-def save_session(sid=None):
-    if sid is None:
-        sid = CURRENT["id"]
-    with SESSION_LOCK:
-        os.makedirs(SESSIONS_DIR, exist_ok=True)
-        tmp = {"id": sid, "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
-               "history": HISTORY}
-        with open(_session_path(sid), "w", encoding="utf-8") as f:
-            json.dump(tmp, f, ensure_ascii=False)
+def _legacy_session_path_unused():
+    pass
 
 
-def load_session(sid=None):
-    if sid is None:
-        sid = CURRENT["id"]
-    p = _session_path(sid)
+def save_session(user, sid, history):
+    p = _session_path(user, sid)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = {"id": sid, "user": user, "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
+           "history": history}
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(tmp, f, ensure_ascii=False)
+
+
+def load_session(user, sid):
+    p = _session_path(user, sid)
     if os.path.isfile(p):
         try:
             with open(p, encoding="utf-8") as f:
-                data = json.load(f)
-            HISTORY.clear()
-            HISTORY.extend(data.get("history", []))
+                return json.load(f).get("history", [])
         except Exception:
             pass
+    return []
+
+
+def _current_sid(user):
+    sid = CURRENT.get(user)
+    if sid and os.path.isfile(_session_path(user, sid)):
+        return sid
+    best = None
+    user_dir = _user_dir(user)
+    if os.path.isdir(user_dir):
+        for fn in os.listdir(user_dir):
+            if fn.endswith(".json"):
+                mtime = os.path.getmtime(os.path.join(user_dir, fn))
+                if best is None or mtime > best[0]:
+                    best = (mtime, fn[:-5])
+    sid = best[1] if best else "default"
+    CURRENT[user] = sid
+    return sid
 
 
 # ---------- 只读接口 ----------
@@ -62,7 +100,21 @@ def stats():
     return {"files": len(knowledge_base.read_docs()),
             "chunks": len(eng.meta),
             "mode": embeddings.describe(),
-            "history": len(HISTORY) // 2}
+            "history": _total_turns()}
+
+
+def _total_turns():
+    n = 0
+    for root, _dirs, files in os.walk(SESSIONS_DIR):
+        for fn in files:
+            if not fn.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(root, fn), encoding="utf-8") as f:
+                    n += len(json.load(f).get("history", [])) // 2
+            except Exception:
+                pass
+    return n
 
 
 def system():
@@ -76,17 +128,20 @@ def system():
 def sessions_list():
     items = []
     if os.path.isdir(SESSIONS_DIR):
-        for fn in sorted(os.listdir(SESSIONS_DIR)):
-            if not fn.endswith(".json"):
-                continue
-            try:
-                with open(os.path.join(SESSIONS_DIR, fn), encoding="utf-8") as f:
-                    d = json.load(f)
-                items.append({"id": d.get("id", fn[:-5]),
-                              "updated": d.get("updated", ""),
-                              "turns": len(d.get("history", [])) // 2})
-            except Exception:
-                pass
+        for root, _dirs, files in os.walk(SESSIONS_DIR):
+            for fn in sorted(files):
+                if not fn.endswith(".json"):
+                    continue
+                try:
+                    with open(os.path.join(root, fn), encoding="utf-8") as f:
+                        d = json.load(f)
+                    rel = os.path.relpath(os.path.join(root, fn), SESSIONS_DIR)
+                    sid = rel[:-5].replace(os.sep, "__")
+                    items.append({"id": sid, "user": d.get("user", ""),
+                                  "updated": d.get("updated", ""),
+                                  "turns": len(d.get("history", [])) // 2})
+                except Exception:
+                    pass
     items.sort(key=lambda x: x["updated"], reverse=True)
     return {"sessions": items}
 
@@ -132,51 +187,52 @@ def file_read(target):
     return 200, {"files": files}
 
 
-def history():
-    return {"history": HISTORY[-40:]}
+def history(user):
+    sid = _current_sid(user)
+    return {"history": load_session(user, sid)[-40:]}
 
 
-def history_clear():
-    HISTORY.clear()
-    save_session()
+def history_clear(user):
+    sid = _current_sid(user)
+    save_session(user, sid, [])
     return {"ok": True}
 
 
-def session_current():
-    return 200, {"id": CURRENT["id"]}
+def session_current(user):
+    return 200, {"id": _current_sid(user)}
 
 
-def session_new(_req=None):
-    save_session()
-    HISTORY.clear()
-    CURRENT["id"] = "s" + time.strftime("%Y%m%d-%H%M%S")
-    save_session()
-    return 200, {"id": CURRENT["id"]}
+def session_new(user, _req=None):
+    sid = _current_sid(user)
+    with _session_lock(user, sid):
+        save_session(user, sid, load_session(user, sid))
+    new_sid = "s" + time.strftime("%Y%m%d-%H%M%S")
+    CURRENT[user] = new_sid
+    save_session(user, new_sid, [])
+    return 200, {"id": new_sid}
 
 
-def session_switch(req):
+def session_switch(user, req):
     sid = str(req.get("id") or "default")
-    save_session()
-    HISTORY.clear()
-    CURRENT["id"] = sid
-    load_session(sid)
+    old = _current_sid(user)
+    with _session_lock(user, old):
+        save_session(user, old, load_session(user, old))
+    CURRENT[user] = sid
+    load_session(user, sid)
     return 200, {"id": sid}
 
 
-def session_delete(req):
+def session_delete(user, req):
     sid = str(req.get("id") or "")
     if not sid:
         return 400, {"error": "empty"}
-    if sid == CURRENT["id"]:
-        HISTORY.clear()
-        CURRENT["id"] = "default"
-        load_session("default")
-        if not os.path.isfile(_session_path("default")):
-            save_session("default")
-    p = _session_path(sid)
+    if sid == _current_sid(user):
+        CURRENT[user] = "default"
+        save_session(user, "default", load_session(user, "default"))
+    p = _session_path(user, sid)
     if os.path.isfile(p):
         os.remove(p)
-    return 200, {"ok": True, "id": CURRENT["id"]}
+    return 200, {"ok": True, "id": CURRENT.get(user, "default")}
 
 
 # ---------- 语料管理 ----------
@@ -263,28 +319,38 @@ def search(q):
                       "text": h["text"][:400]} for h in hits]}
 
 
-def chat(q):
-    """返回 (steps, reply)，并把本轮写进会话记忆。"""
+def chat(req, user):
+    """返回 (steps, reply)，并把本轮写进该用户当前会话。"""
+    q = (req.get("message") or "").strip()
     import knowledge_base
     import embeddings
     from llm import chat_with_tool_loop_collector
-    import memory
-    with CHAT_LOCK:
-        return _chat_inner(q, knowledge_base, embeddings, chat_with_tool_loop_collector)
+    sid = _current_sid(user)
+    with _session_lock(user, sid):
+        steps, reply = _chat_inner(user, sid, q, knowledge_base, embeddings,
+                                   chat_with_tool_loop_collector)
+    auth.usage_count(user)
+    return steps, reply
 
 
 
-def chat_stream(q, emit):
+def chat_stream(req, user, emit):
     """流式对话：通过 emit(dict) 实时推送 steps/delta 事件，返回完整回复。"""
+    q = (req.get("message") or "").strip()
     import knowledge_base
     import embeddings
     from llm import chat_with_tool_loop_stream
-    with CHAT_LOCK:
-        return _chat_stream_inner(q, emit, knowledge_base, embeddings, chat_with_tool_loop_stream)
+    sid = _current_sid(user)
+    with _session_lock(user, sid):
+        reply = _chat_stream_inner(user, sid, q, emit, knowledge_base, embeddings,
+                                   chat_with_tool_loop_stream)
+    auth.usage_count(user)
+    return reply
 
 
-def _chat_stream_inner(q, emit, knowledge_base, embeddings, chat_with_tool_loop_stream):
+def _chat_stream_inner(user, sid, q, emit, knowledge_base, embeddings, chat_with_tool_loop_stream):
     import memory
+    history = load_session(user, sid)
     memory.touch()
     m = re.match(r"^(?:请?记住|帮我记住|别忘[了记])[：:，,\s]*(.+)$", q.strip())
     if m:
@@ -298,7 +364,7 @@ def _chat_stream_inner(q, emit, knowledge_base, embeddings, chat_with_tool_loop_
     if not hits:
         steps.append({"type": "retrieval", "text": "知识库未命中（空库或无相关语料）"})
     emit({"type": "steps", "steps": steps})
-    messages = agent.build_messages(HISTORY, q, verbose=False, hits=hits)
+    messages = agent.build_messages(history, q, verbose=False, hits=hits)
     reply_parts = []
 
     def on_delta(text):
@@ -308,15 +374,16 @@ def _chat_stream_inner(q, emit, knowledge_base, embeddings, chat_with_tool_loop_
     reply = chat_with_tool_loop_stream(messages, steps, on_delta)
     if steps:
         emit({"type": "steps", "steps": steps})
-    HISTORY.append({"role": "user", "content": q})
-    HISTORY.append({"role": "assistant", "content": reply})
-    save_session()
-    threading.Thread(target=memory.maybe_extract, args=(CURRENT["id"],), daemon=True).start()
+    history.append({"role": "user", "content": q})
+    history.append({"role": "assistant", "content": reply})
+    save_session(user, sid, history)
+    threading.Thread(target=memory.maybe_extract, args=(f"{user}/{sid}",), daemon=True).start()
     emit({"type": "done", "reply": reply})
     return reply
 
-def _chat_inner(q, knowledge_base, embeddings, chat_with_tool_loop_collector):
+def _chat_inner(user, sid, q, knowledge_base, embeddings, chat_with_tool_loop_collector):
     import memory
+    history = load_session(user, sid)
     memory.touch()
     # 显式"记住"指令：不走模型，直接写入
     m = re.match(r"^(?:请?记住|帮我记住|别忘[了记])[：:，,\s]*(.+)$", q.strip())
@@ -330,13 +397,13 @@ def _chat_inner(q, knowledge_base, embeddings, chat_with_tool_loop_collector):
                       "text": f"知识库命中: {h['source']}（相关度 {h['score']}）"})
     if not hits:
         steps.append({"type": "retrieval", "text": "知识库未命中（空库或无相关语料）"})
-    messages = agent.build_messages(HISTORY, q, verbose=False, hits=hits)
+    messages = agent.build_messages(history, q, verbose=False, hits=hits)
     reply = chat_with_tool_loop_collector(messages, steps)
-    HISTORY.append({"role": "user", "content": q})
-    HISTORY.append({"role": "assistant", "content": reply})
-    save_session()
+    history.append({"role": "user", "content": q})
+    history.append({"role": "assistant", "content": reply})
+    save_session(user, sid, history)
     # 抽取放后台线程：不阻塞用户看到回复，也和下一轮对话的 LLM 调用错开
-    threading.Thread(target=memory.maybe_extract, args=(CURRENT["id"],), daemon=True).start()
+    threading.Thread(target=memory.maybe_extract, args=(f"{user}/{sid}",), daemon=True).start()
     return steps, reply
 
 
@@ -359,3 +426,44 @@ def memory_clear(req=None):
     import memory
     memory.clear()
     return 200, {"ok": True}
+
+
+# ---------- 鉴权与用户管理 ----------
+
+def auth_login(req):
+    username = str(req.get("username") or "").strip()
+    if not auth.verify(username, req.get("password")):
+        return 401, {"error": "用户名或密码错误"}
+    return 200, {"ok": True, "token": auth.issue_token(username),
+                 "role": auth.role(username), "user": username}
+
+
+def auth_status(user):
+    return {"ok": True, **auth.status(user)}
+
+
+def admin_users_list(_req=None):
+    items = []
+    for name, u in sorted(auth.users().items()):
+        ok, used, quota = auth.usage_check(name)
+        items.append({"username": name, "role": u.get("role", "user"),
+                      "quota": u.get("quota", 30), "used_today": used,
+                      "created": u.get("created", "")})
+    return 200, {"users": items}
+
+
+def admin_user_create(req):
+    return auth.create_user(req.get("username"), req.get("password"),
+                            req.get("role") or "user", req.get("quota"))
+
+
+def admin_user_password(req):
+    return auth.set_password(req.get("username"), req.get("password"))
+
+
+def admin_user_quota(req):
+    return auth.set_quota(req.get("username"), req.get("quota"))
+
+
+def admin_user_delete(req):
+    return auth.delete_user(req.get("username"))

@@ -81,6 +81,20 @@
   </div>
 
   <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 mb-6">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-xs text-slate-400 flex items-center gap-1"><i data-lucide="users" class="w-3 h-3"></i>用户管理</p>
+      <button id="users-refresh" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">刷新</button>
+    </div>
+    <div id="users-list" class="text-xs space-y-1.5 mb-3"></div>
+    <div class="flex flex-wrap gap-2 items-center">
+      <input id="new-user" placeholder="用户名" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 w-32 text-xs">
+      <input id="new-pass" placeholder="密码(6位+)" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 w-32 text-xs">
+      <input id="new-quota" placeholder="每日额度" type="number" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 w-24 text-xs">
+      <button id="user-create" class="text-xs px-3 py-1 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30">创建</button>
+    </div>
+  </div>
+
+  <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 mb-6">
     <div class="flex items-center justify-between mb-3">
       <p class="text-xs text-slate-400 flex items-center gap-1"><i data-lucide="brain" class="w-3 h-3"></i>长期记忆（画像/偏好/事实，对话中自动沉淀）</p>
       <button id="mem-clear" class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30">全部清空</button>
@@ -118,6 +132,13 @@
   </div>
 </div>
 <script>
+const _origFetch = window.fetch;
+window.fetch = async function (url, opts) {
+  const res = await _origFetch(url, opts);
+  if (res && res.status === 401) { location.href = '/login'; }
+  return res;
+};
+
 let ALL_FILES = [];
 let ACTIVE_CAT = "";
 
@@ -356,6 +377,57 @@ document.getElementById('hist-clear').onclick = async e=>{
   loadHistory(); document.getElementById('hist-list').innerHTML = '';
 };
 loadStats(); loadFiles();
+
+async function loadUsers(){
+  const d = await (await fetch('/api/admin/users')).json();
+  const box = document.getElementById('users-list');
+  box.innerHTML = d.users.length ? '' : '<p class="text-slate-500">暂无用户。</p>';
+  d.users.forEach(u=>{
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2 p-1.5 rounded bg-slate-950 border border-slate-800';
+    div.innerHTML = '<span class="font-semibold text-amber-300">' + u.username + '</span>' +
+      '<span class="text-slate-500">' + u.role + '</span>' +
+      '<span class="text-slate-400 ml-auto">今日 ' + u.used_today + '/' + u.quota + '</span>';
+    const pwd = document.createElement('input');
+    pwd.placeholder = '新密码'; pwd.className = 'bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 w-24 text-xs';
+    const resetBtn = document.createElement('button');
+    resetBtn.textContent = '重置密码'; resetBtn.className = 'text-xs px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700';
+    resetBtn.onclick = async ()=>{
+      if(pwd.value.length < 6) { alert('密码至少 6 位'); return; }
+      await fetch('/api/admin/users/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.username,password:pwd.value})});
+      alert('已重置'); pwd.value='';
+    };
+    const quotaBtn = document.createElement('button');
+    quotaBtn.textContent = '改额度'; quotaBtn.className = 'text-xs px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700';
+    quotaBtn.onclick = async ()=>{
+      const q = prompt('新每日额度', u.quota); if(q===null) return;
+      await fetch('/api/admin/users/quota',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.username,quota:Number(q)||30})});
+      loadUsers();
+    };
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '删除'; delBtn.className = 'text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30';
+    delBtn.onclick = async ()=>{
+      if(!confirm('确定删除用户 ' + u.username + '？')) return;
+      await fetch('/api/admin/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.username})});
+      loadUsers();
+    };
+    div.appendChild(pwd); div.appendChild(resetBtn); div.appendChild(quotaBtn); div.appendChild(delBtn);
+    box.appendChild(div);
+  });
+}
+document.getElementById('users-refresh').onclick = loadUsers;
+document.getElementById('user-create').onclick = async ()=>{
+  const username = document.getElementById('new-user').value.trim();
+  const password = document.getElementById('new-pass').value;
+  const quota = Number(document.getElementById('new-quota').value) || 30;
+  const res = await fetch('/api/admin/users/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,quota})});
+  const data = await res.json();
+  if(!res.ok){ alert(data.error || '创建失败'); return; }
+  document.getElementById('new-user').value = '';
+  document.getElementById('new-pass').value = '';
+  loadUsers();
+};
+loadUsers();
 loadSystem(); loadCats(); loadHistory(); loadMemory();
 lucide.createIcons();
 </script>

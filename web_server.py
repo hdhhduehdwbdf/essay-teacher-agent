@@ -17,6 +17,7 @@ import threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import api  # noqa: E402
+import auth  # noqa: E402
 
 FRONTEND = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
 VENDOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor")
@@ -24,29 +25,39 @@ CTYPES = {".html": "text/html; charset=utf-8", ".js": "application/javascript; c
           ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml"}
 
 GET_ROUTES = {
-    "/": lambda qs: (200, None, "chat.html"),
-    "/index.html": lambda qs: (200, None, "chat.html"),
-    "/admin": lambda qs: (200, None, "admin.html"),
-    "/rag": lambda qs: (200, None, "rag.html"),
-    "/star": lambda qs: (200, None, "star.html"),
-    "/threads": lambda qs: (200, None, "threads.html"),
-    "/flows": lambda qs: (200, None, "flows.html"),
-    "/memory-plan": lambda qs: (200, None, "memory_plan.html"),
-    "/api/stats": lambda qs: (200, api.stats(), None),
-    "/api/system": lambda qs: (200, api.system(), None),
-    "/api/sessions": lambda qs: (200, api.sessions_list(), None),
-    "/api/session": lambda qs: (200, api.session_current(), None),
-    "/api/categories": lambda qs: (200, api.categories(), None),
-    "/api/history": lambda qs: (200, api.history(), None),
-    "/api/memory": lambda qs: (200, api.memory_list(), None),
-    "/api/files": lambda qs: (*api.file_read(unquote(qs.get("path", [""])[0])), None),
+    "/": lambda qs, user: (200, None, "chat.html"),
+    "/index.html": lambda qs, user: (200, None, "chat.html"),
+    "/admin": lambda qs, user: (200, None, "admin.html"),
+    "/rag": lambda qs, user: (200, None, "rag.html"),
+    "/star": lambda qs, user: (200, None, "star.html"),
+    "/threads": lambda qs, user: (200, None, "threads.html"),
+    "/flows": lambda qs, user: (200, None, "flows.html"),
+    "/memory-plan": lambda qs, user: (200, None, "memory_plan.html"),
+    "/api/auth/status": lambda qs, user: (200, api.auth_status(user), None),
+    "/api/stats": lambda qs, user: (200, api.stats(), None),
+    "/api/system": lambda qs, user: (200, api.system(), None),
+    "/api/sessions": lambda qs, user: (200, api.sessions_list(), None),
+    "/api/session": lambda qs, user: (200, api.session_current(user), None),
+    "/api/categories": lambda qs, user: (200, api.categories(), None),
+    "/api/history": lambda qs, user: (200, api.history(user), None),
+    "/api/memory": lambda qs, user: (200, api.memory_list(), None),
+    "/api/admin/users": lambda qs, user: (200, api.admin_users_list(), None),
+    "/api/files": lambda qs, user: (*api.file_read(unquote(qs.get("path", [""])[0])), None),
 }
+
+# 需要管理员身份的路径
+ADMIN_ONLY_PAGES = ("/admin",)
+ADMIN_ONLY_API = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
+                  "/api/memory/delete", "/api/memory/clear", "/api/files", "/api/categories")
 
 
 class _Headers(dict):
     """大小写不敏感的请求头，供 WSGI 适配器使用"""
     def get(self, key, default=None):
-        return super().get(key.lower(), default)
+        k = key.lower()
+        if k in self:
+            return super().get(k, default)
+        return super().get("http-" + k, default)
 
 
 def wsgi_app(environ, start_response):
@@ -156,20 +167,28 @@ def _wsgi_plain(environ, start_response):
     return [state["body"].getvalue()]
 
 POST_ROUTES = {
-    "/api/chat": "chat",
-    "/api/chat/stream": "chat_stream",
-    "/api/search": "search",
-    "/api/rebuild": "rebuild",
-    "/api/delete": "file_delete",
-    "/api/files/save": "file_save",
-    "/api/files/upload": "file_upload",
-    "/api/history/clear": "history_clear",
-    "/api/session/new": "session_new",
-    "/api/session/switch": "session_switch",
-    "/api/session/delete": "session_delete",
-    "/api/memory/delete": "memory_delete",
-    "/api/memory/clear": "memory_clear",
+    "/api/chat": lambda req, user: api.chat(req, user),
+    "/api/search": lambda req, user: api.search(req.get("message") or ""),
+    "/api/rebuild": lambda req, user: api.rebuild(),
+    "/api/delete": lambda req, user: api.file_delete(req),
+    "/api/files/save": lambda req, user: api.file_save(req),
+    "/api/files/upload": lambda req, user: api.file_upload(req),
+    "/api/history/clear": lambda req, user: (200, api.history_clear(user)),
+    "/api/session/new": lambda req, user: api.session_new(user, req),
+    "/api/session/switch": lambda req, user: api.session_switch(user, req),
+    "/api/session/delete": lambda req, user: api.session_delete(user, req),
+    "/api/memory/delete": lambda req, user: api.memory_delete(req),
+    "/api/memory/clear": lambda req, user: api.memory_clear(req),
+    "/api/admin/users": lambda req, user: api.admin_users_list(req),
+    "/api/admin/users/create": lambda req, user: api.admin_user_create(req),
+    "/api/admin/users/password": lambda req, user: api.admin_user_password(req),
+    "/api/admin/users/quota": lambda req, user: api.admin_user_quota(req),
+    "/api/admin/users/delete": lambda req, user: api.admin_user_delete(req),
 }
+
+ADMIN_ONLY_POST = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
+                   "/api/memory/delete", "/api/memory/clear", "/api/admin/users/create",
+                   "/api/admin/users/password", "/api/admin/users/quota", "/api/admin/users/delete")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -206,39 +225,83 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             qs = parse_qs(parsed.query)
+            if parsed.path.startswith("/vendor/"):
+                self._static(os.path.basename(parsed.path), VENDOR)
+                return
+            if parsed.path in ("/login", "/login.html"):
+                self._static("login.html", FRONTEND)
+                return
+            user = auth.from_headers(self.headers)
+            if user is None and parsed.path.startswith("/api/"):
+                self._json(401, {"need_login": True, "error": "未登录"})
+                return
+            if user is None:
+                self._redirect("/login")
+                return
+            if (parsed.path in ADMIN_ONLY_PAGES or parsed.path in ADMIN_ONLY_API) and auth.role(user) != "admin":
+                self._send(403, "<h2>403 无权限</h2><p>该页面仅管理员可见。</p>".encode("utf-8"),
+                           "text/html; charset=utf-8")
+                return
             route = GET_ROUTES.get(parsed.path)
             if route:
-                code, payload, static_name = route(qs)
+                code, payload, static_name = route(qs, user)
                 if static_name:
                     with open(os.path.join(FRONTEND, static_name), encoding="utf-8") as f:
                         self._send(200, f.read().encode("utf-8"), "text/html; charset=utf-8")
                 else:
                     self._json(code, payload)
-            elif parsed.path.startswith("/vendor/"):
-                self._static(os.path.basename(parsed.path), VENDOR)
             else:
                 self._json(404, {"error": "not found"})
         except Exception as e:
             self._json(500, {"error": f"{type(e).__name__}: {e}"})
 
+    def _redirect(self, location):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _json_ex(self, code, payload, extra_headers=()):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        for k, v in extra_headers:
+            self.send_header(k, v)
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _sse(self, obj):
         self.wfile.write(("data: " + json.dumps(obj, ensure_ascii=False) + "\n\n").encode("utf-8"))
         self.wfile.flush()
 
-    def _chat_stream_post(self, req):
+    def _chat_gate(self, user):
+        """对话前置检查：频率 + 每日额度。返回 True 表示放行。"""
+        if auth.throttled(user):
+            self._json(429, {"error": "请求太频繁，请稍后再试"})
+            return False
+        ok, used, quota = auth.usage_check(user)
+        if not ok:
+            self._json(429, {"error": f"今日额度已用完（{used}/{quota}）"})
+            return False
+        return True
+
+    def _chat_stream_post(self, req, user):
         q = (req.get("message") or "").strip()
         if req.get("action") == "reset":
-            self._json(200, api.history_clear())
+            self._json(200, api.history_clear(user))
             return
         if not q:
             self._json(400, {"error": "empty"})
+            return
+        if not self._chat_gate(user):
             return
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         try:
-            api.chat_stream(q, lambda ev: self._sse(ev))
+            api.chat_stream(req, user, lambda ev: self._sse(ev))
         except Exception as e:
             try:
                 self._sse({"type": "error", "error": f"{type(e).__name__}: {e}"})
@@ -247,34 +310,50 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            fn_name = POST_ROUTES.get(self.path)
-            if not fn_name:
-                self._json(404, {"error": "not found"})
-                return
+            path = urlparse(self.path).path
             n = int(self.headers.get("Content-Length", 0))
             req = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
-            if self.path == "/api/chat/stream":
-                self._chat_stream_post(req)
+            if path == "/api/auth/login":
+                code, payload = api.auth_login(req)
+                headers = []
+                if code == 200:
+                    headers.append(("Set-Cookie", auth.set_cookie(payload.pop("token"))))
+                self._json_ex(code, payload, headers)
                 return
-            if self.path == "/api/chat":
+            if path == "/api/auth/logout":
+                self._json_ex(200, {"ok": True}, [("Set-Cookie", auth.clear_cookie())])
+                return
+            fn = POST_ROUTES.get(path)
+            if not fn:
+                self._json(404, {"error": "not found"})
+                return
+            user = auth.from_headers(self.headers)
+            if user is None:
+                self._json(401, {"need_login": True, "error": "未登录"})
+                return
+            if path in ADMIN_ONLY_POST and auth.role(user) != "admin":
+                self._json(403, {"error": "仅管理员可操作"})
+                return
+            if path == "/api/chat/stream":
+                self._chat_stream_post(req, user)
+                return
+            if path == "/api/chat":
                 q = (req.get("message") or "").strip()
                 if req.get("action") == "reset":
-                    self._json(200, api.history_clear())
+                    self._json(200, api.history_clear(user))
                     return
                 if not q:
                     self._json(400, {"error": "empty"})
                     return
-                steps, reply = api.chat(q)
+                if not self._chat_gate(user):
+                    return
+                steps, reply = api.chat(req, user)
                 self._json(200, {"reply": reply, "steps": steps})
                 return
-            q = (req.get("message") or "").strip()
-            if fn_name == "search":
-                if not q:
-                    self._json(400, {"error": "empty"})
-                    return
-                self._json(200, api.search(q))
+            if path == "/api/search" and not (req.get("message") or "").strip():
+                self._json(400, {"error": "empty"})
                 return
-            code, payload = getattr(api, fn_name)(req)
+            code, payload = fn(req, user)
             self._json(code, payload)
         except SystemExit as e:
             self._json(500, {"error": str(e)})
@@ -303,7 +382,7 @@ def _warmup():
 
 
 if __name__ == "__main__":
-    api.load_session()
+    auth.init_admin()
     threading.Thread(target=_warmup, daemon=True).start()
     port = int(os.environ.get("PORT", "8778"))
     host = os.environ.get("HOST", "127.0.0.1")  # 上线时设 HOST=0.0.0.0
