@@ -9,6 +9,7 @@ import os
 import secrets
 import threading
 import time
+import json
 
 import store
 
@@ -85,6 +86,50 @@ def create_user(username, password, role="user", quota=None):
     return 200, {"ok": True}
 
 
+def register(username, password, note=""):
+    """访客自助申请：账号为 pending 状态，管理员同意后才能登录。"""
+    code, payload = create_user(username, password, role="user")
+    if code != 200:
+        return code, payload
+    store.user_set_status(str(username).strip(), "pending", str(note or "")[:100])
+    _notify_applications(f"新注册申请：{username}（{str(note or '')[:50]}）")
+    return 200, {"ok": True, "pending": True}
+
+
+def _notify_applications(text):
+    print(f"[register] {text}", flush=True)
+    url = os.environ.get("ALERT_WEBHOOK", "")
+    if not url:
+        return
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, data=json.dumps({"text": text}).encode(),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"[register] 告警发送失败：{type(e).__name__}: {e}", flush=True)
+
+
+def approve_user(username):
+    """同意申请：账号转 active。"""
+    if username not in store.users_all():
+        return 404, {"error": "申请不存在"}
+    store.user_set_status(username, "active")
+    return 200, {"ok": True}
+
+
+def reject_user(username):
+    """拒绝申请：直接删除账号记录。"""
+    if username not in store.users_all():
+        return 404, {"error": "申请不存在"}
+    store.user_delete(username)
+    return 200, {"ok": True}
+
+
+def pending_users():
+    return [u for u in store.users_all().values() if u.get("status") == "pending"]
+
+
 def set_password(username, password):
     if len(str(password or "")) < 6:
         return 400, {"error": "密码至少 6 位"}
@@ -117,6 +162,8 @@ def delete_user(username):
 def verify(username, password):
     u = users().get(str(username or "").strip())
     if not u:
+        return False
+    if u.get("status") == "pending":
         return False
     return hmac.compare_digest(u["hash"], _hash(str(password), u["salt"]))
 

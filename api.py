@@ -452,12 +452,19 @@ def auth_login(req):
     blocked, left = auth.login_blocked(username)
     if blocked:
         return 429, {"error": f"登录失败次数过多，请 {left} 秒后再试"}
+    u = auth.users().get(username)
+    if u and u.get("status") == "pending":
+        return 403, {"error": "账号正在审核中，请等待管理员同意"}
     if not auth.verify(username, req.get("password")):
         auth.record_login_fail(username)
         return 401, {"error": "用户名或密码错误"}
     auth.clear_login_fails(username)
     return 200, {"ok": True, "token": auth.issue_token(username),
                  "role": auth.role(username), "user": username}
+
+
+def auth_register(req):
+    return auth.register(req.get("username"), req.get("password"), req.get("note") or "")
 
 
 def auth_status(user):
@@ -470,8 +477,17 @@ def admin_users_payload():
         ok, used, quota = auth.usage_check(name)
         items.append({"username": name, "role": u.get("role", "user"),
                       "quota": u.get("quota", 30), "used_today": used,
-                      "created": u.get("created", "")})
-    return {"users": items}
+                      "created": u.get("created", ""),
+                      "status": u.get("status", "active"), "note": u.get("note", "")})
+    return {"users": items, "pending": [u for u in items if u["status"] == "pending"]}
+
+
+def admin_user_approve(req):
+    return auth.approve_user(req.get("username"))
+
+
+def admin_user_reject(req):
+    return auth.reject_user(req.get("username"))
 
 
 def admin_users_list(_req=None):

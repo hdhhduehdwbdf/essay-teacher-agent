@@ -23,7 +23,8 @@ _local = threading.local()
 
 SCHEMA_SQLITE = """
 CREATE TABLE IF NOT EXISTS users (
-  username TEXT PRIMARY KEY, salt TEXT, hash TEXT, role TEXT, quota INTEGER, created TEXT);
+  username TEXT PRIMARY KEY, salt TEXT, hash TEXT, role TEXT, quota INTEGER, created TEXT,
+  status TEXT DEFAULT 'active', note TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS sessions (
   user TEXT, sid TEXT, updated TEXT, history TEXT, PRIMARY KEY (user, sid));
 CREATE TABLE IF NOT EXISTS memories (
@@ -117,8 +118,15 @@ def users_all():
 
 def user_put(username, salt, pw_hash, role, quota):
     _exec("DELETE FROM users WHERE username=?", (username,))
-    _exec("INSERT INTO users(username,salt,hash,role,quota,created) VALUES(?,?,?,?,?,?)",
+    _exec("INSERT INTO users(username,salt,hash,role,quota,created,status,note) VALUES(?,?,?,?,?,?,'active','')",
           (username, salt, pw_hash, role, int(quota), time.strftime("%Y-%m-%d %H:%M:%S")))
+
+
+def user_set_status(username, status, note=None):
+    if note is None:
+        _exec("UPDATE users SET status=? WHERE username=?", (status, username))
+    else:
+        _exec("UPDATE users SET status=?, note=? WHERE username=?", (status, note, username))
 
 
 def user_delete(username):

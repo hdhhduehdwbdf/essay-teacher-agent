@@ -16,11 +16,18 @@ body { font-family:'PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei U
   <div class="w-full max-w-sm">
     <p class="mb-1 text-sm text-[var(--ink-soft)]">叁月聚粮</p>
     <h1 class="serif text-2xl font-semibold mb-6">作文老师 · 登录</h1>
+    <div class="flex gap-2 mb-4 text-sm">
+      <button type="button" id="tab-login" class="px-4 py-1.5 rounded-lg bg-[var(--ink)] text-white">登录</button>
+      <button type="button" id="tab-register" class="px-4 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--card)] text-[var(--ink-soft)]">申请注册</button>
+    </div>
+    <p id="register-tip" class="hidden mb-2 text-xs text-[var(--ink-soft)]">提交后进入待审核状态，管理员同意后即可登录。</p>
     <form id="form" class="space-y-3">
       <input id="username" placeholder="用户名" required
         class="w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-3 py-2.5 text-sm outline-none focus:border-[var(--ink-soft)]">
       <input id="password" type="password" placeholder="密码" required
         class="w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-3 py-2.5 text-sm outline-none focus:border-[var(--ink-soft)]">
+      <input id="password2" type="password" placeholder="确认密码" class="hidden w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-3 py-2.5 text-sm outline-none focus:border-[var(--ink-soft)]">
+      <input id="note" placeholder="申请说明（选填：身份/年级/用途）" class="hidden w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-3 py-2.5 text-sm outline-none focus:border-[var(--ink-soft)]">
       <p id="error" class="hidden text-sm text-red-500"></p>
       <button type="submit" id="btn"
         class="w-full rounded-lg bg-[var(--ink)] text-white py-2.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">登录</button>
@@ -29,6 +36,21 @@ body { font-family:'PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei U
   </div>
 </div>
 <script>
+let mode = 'login';
+const $ = id => document.getElementById(id);
+function setMode(m) {
+  mode = m;
+  $('tab-login').className = 'px-4 py-1.5 rounded-lg text-sm ' + (m==='login' ? 'bg-[var(--ink)] text-white' : 'border border-[var(--line)] bg-[var(--card)] text-[var(--ink-soft)]');
+  $('tab-register').className = 'px-4 py-1.5 rounded-lg text-sm ' + (m==='register' ? 'bg-[var(--ink)] text-white' : 'border border-[var(--line)] bg-[var(--card)] text-[var(--ink-soft)]');
+  ['password2','note'].forEach(id => $(id).classList.toggle('hidden', m!=='register'));
+  $('register-tip').classList.toggle('hidden', m!=='register');
+  $('btn').textContent = m==='login' ? '登录' : '提交申请';
+  const err = $('error');
+  err.className = 'hidden text-sm text-red-500';
+}
+$('tab-login').onclick = () => setMode('login');
+$('tab-register').onclick = () => setMode('register');
+
 const form = document.getElementById('form');
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -37,18 +59,35 @@ form.addEventListener('submit', async (e) => {
   err.classList.add('hidden');
   btn.disabled = true;
   try {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        username: document.getElementById('username').value.trim(),
-        password: document.getElementById('password').value,
-      }),
-    });
-    const data = await res.json();
-    if (res.ok) { location.href = '/'; return; }
-    err.textContent = data.error || '登录失败';
-    err.classList.remove('hidden');
+    if (mode === 'login') {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          username: $('username').value.trim(),
+          password: $('password').value,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) { location.href = '/'; return; }
+      err.textContent = data.error || '登录失败';
+      err.classList.remove('hidden');
+    } else {
+      if ($('password').value.length < 6) { err.textContent = '密码至少 6 位'; err.classList.remove('hidden'); btn.disabled = false; return; }
+      if ($('password').value !== $('password2').value) { err.textContent = '两次密码不一致'; err.classList.remove('hidden'); btn.disabled = false; return; }
+      const res = await fetch('/api/auth/register', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({username: $('username').value.trim(), password: $('password').value, note: $('note').value})});
+      const data = await res.json();
+      if (res.ok) {
+        err.className = 'text-sm text-emerald-600';
+        err.textContent = '申请已提交，等待管理员审核；通过后用此账号登录。';
+        err.classList.remove('hidden');
+        btn.disabled = false;
+        return;
+      }
+      err.textContent = data.error || '提交失败';
+      err.classList.remove('hidden');
+    }
   } catch (e2) {
     err.textContent = '网络错误，请重试';
     err.classList.remove('hidden');

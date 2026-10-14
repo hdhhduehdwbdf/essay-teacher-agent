@@ -189,11 +189,14 @@ POST_ROUTES = {
     "/api/admin/users/password": lambda req, user: api.admin_user_password(req),
     "/api/admin/users/quota": lambda req, user: api.admin_user_quota(req),
     "/api/admin/users/delete": lambda req, user: api.admin_user_delete(req),
+    "/api/admin/users/approve": lambda req, user: api.admin_user_approve(req),
+    "/api/admin/users/reject": lambda req, user: api.admin_user_reject(req),
 }
 
 ADMIN_ONLY_POST = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
                    "/api/memory/delete", "/api/memory/clear", "/api/admin/users/create",
-                   "/api/admin/users/password", "/api/admin/users/quota", "/api/admin/users/delete")
+                   "/api/admin/users/password", "/api/admin/users/quota", "/api/admin/users/delete",
+                   "/api/admin/users/approve", "/api/admin/users/reject")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -333,6 +336,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/auth/logout":
                 self._json_ex(200, {"ok": True}, [("Set-Cookie", auth.clear_cookie())])
+                return
+            if path == "/api/auth/register":
+                code, payload = api.auth_register(req)
+                self._json_ex(code, payload)
                 return
             user = auth.from_headers(self.headers)
             if user is None:
