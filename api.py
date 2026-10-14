@@ -426,8 +426,13 @@ def memory_clear(req=None):
 
 def auth_login(req):
     username = str(req.get("username") or "").strip()
+    blocked, left = auth.login_blocked(username)
+    if blocked:
+        return 429, {"error": f"登录失败次数过多，请 {left} 秒后再试"}
     if not auth.verify(username, req.get("password")):
+        auth.record_login_fail(username)
         return 401, {"error": "用户名或密码错误"}
+    auth.clear_login_fails(username)
     return 200, {"ok": True, "token": auth.issue_token(username),
                  "role": auth.role(username), "user": username}
 

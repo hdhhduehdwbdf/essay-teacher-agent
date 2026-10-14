@@ -21,6 +21,9 @@ THROTTLE_INTERVAL = 2
 
 _LOCK = threading.RLock()
 _THROTTLE = {}
+LOGIN_MAX_FAILS = 5
+LOGIN_LOCK_SECONDS = 300
+_FAILS = {}
 
 
 def _ensure_dir():
@@ -144,6 +147,30 @@ def verify(username, password):
     if not u:
         return False
     return hmac.compare_digest(u["hash"], _hash(str(password), u["salt"]))
+
+
+def login_blocked(username):
+    """返回 (blocked, 剩余秒数)，连续失败过多时锁定。"""
+    with _LOCK:
+        n, ts = _FAILS.get(username, (0, 0))
+        if n < LOGIN_MAX_FAILS:
+            return False, 0
+        left = int(LOGIN_LOCK_SECONDS - (time.time() - ts))
+        if left <= 0:
+            _FAILS.pop(username, None)
+            return False, 0
+        return True, left
+
+
+def record_login_fail(username):
+    with _LOCK:
+        n, _ts = _FAILS.get(username, (0, 0))
+        _FAILS[username] = (n + 1, time.time())
+
+
+def clear_login_fails(username):
+    with _LOCK:
+        _FAILS.pop(username, None)
 
 
 def _fingerprint(username):
