@@ -44,11 +44,11 @@ SYSTEM_TMPL = """{persona}
 """
 
 
-def build_messages(history, user_input, verbose=True, hits=None):
+def build_messages(history, user_input, verbose=True, hits=None, user="admin"):
     memory_block = ""
     try:
         import memory
-        memory_block = memory.recall(user_input)
+        memory_block = memory.recall(user_input, user)
     except Exception:
         pass
     # ① 知识库检索

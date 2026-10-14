@@ -348,7 +348,7 @@ def _chat_stream_inner(user, sid, q, emit, knowledge_base, embeddings, chat_with
     memory.touch()
     m = re.match(r"^(?:请?记住|帮我记住|别忘[了记])[：:，,\s]*(.+)$", q.strip())
     if m:
-        memory.add(m.group(1).strip()[:200], "fact")
+        memory.add(m.group(1).strip()[:200], "fact", user)
     steps = []
     hits = knowledge_base.retrieve(q)
     steps.append({"type": "retrieval", "text": f"检索模式: {embeddings.describe()}"})
@@ -358,7 +358,7 @@ def _chat_stream_inner(user, sid, q, emit, knowledge_base, embeddings, chat_with
     if not hits:
         steps.append({"type": "retrieval", "text": "知识库未命中（空库或无相关语料）"})
     emit({"type": "steps", "steps": steps})
-    messages = agent.build_messages(history, q, verbose=False, hits=hits)
+    messages = agent.build_messages(history, q, verbose=False, hits=hits, user=user)
     reply_parts = []
 
     def on_delta(text):
@@ -371,7 +371,7 @@ def _chat_stream_inner(user, sid, q, emit, knowledge_base, embeddings, chat_with
     history.append({"role": "user", "content": q})
     history.append({"role": "assistant", "content": reply})
     save_session(user, sid, history)
-    threading.Thread(target=memory.maybe_extract, args=(f"{user}/{sid}",), daemon=True).start()
+    threading.Thread(target=memory.maybe_extract, args=(user, sid), daemon=True).start()
     emit({"type": "done", "reply": reply})
     return reply
 
@@ -382,7 +382,7 @@ def _chat_inner(user, sid, q, knowledge_base, embeddings, chat_with_tool_loop_co
     # 显式"记住"指令：不走模型，直接写入
     m = re.match(r"^(?:请?记住|帮我记住|别忘[了记])[：:，,\s]*(.+)$", q.strip())
     if m:
-        memory.add(m.group(1).strip()[:200], "fact")
+        memory.add(m.group(1).strip()[:200], "fact", user)
     steps = []
     hits = knowledge_base.retrieve(q)
     steps.append({"type": "retrieval", "text": f"检索模式: {embeddings.describe()}"})
@@ -391,13 +391,13 @@ def _chat_inner(user, sid, q, knowledge_base, embeddings, chat_with_tool_loop_co
                       "text": f"知识库命中: {h['source']}（相关度 {h['score']}）"})
     if not hits:
         steps.append({"type": "retrieval", "text": "知识库未命中（空库或无相关语料）"})
-    messages = agent.build_messages(history, q, verbose=False, hits=hits)
+    messages = agent.build_messages(history, q, verbose=False, hits=hits, user=user)
     reply = chat_with_tool_loop_collector(messages, steps)
     history.append({"role": "user", "content": q})
     history.append({"role": "assistant", "content": reply})
     save_session(user, sid, history)
     # 抽取放后台线程：不阻塞用户看到回复，也和下一轮对话的 LLM 调用错开
-    threading.Thread(target=memory.maybe_extract, args=(f"{user}/{sid}",), daemon=True).start()
+    threading.Thread(target=memory.maybe_extract, args=(user, sid), daemon=True).start()
     return steps, reply
 
 
@@ -410,16 +410,22 @@ def memory_list():
     return {"items": items}
 
 
-def memory_delete(req):
+def memory_delete(req, user=None, is_admin=False):
     import memory
-    memory.delete(req.get("id") or "")
+    memory.delete(req.get("id") or "", None if is_admin else user)
     return 200, {"ok": True}
 
 
-def memory_clear(req=None):
+def memory_clear(req=None, user=None, is_admin=False):
     import memory
-    memory.clear()
+    memory.clear(None if is_admin else user)
     return 200, {"ok": True}
+
+
+def memory_list_payload(user=None, is_admin=True):
+    """管理台：按用户过滤（管理员看全部）。"""
+    import memory
+    return memory._load_all(None if is_admin else user)
 
 
 # ---------- 鉴权与用户管理 ----------

@@ -41,7 +41,12 @@ def _save_state(st):
         json.dump(st, f, ensure_ascii=False)
 
 
-def _load_all():
+def _owner(it):
+    """记忆归属用户；历史遗留（无 user 字段）条目归 admin。"""
+    return it.get("user") or "admin"
+
+
+def _load_all(user=None):
     items = []
     if os.path.isfile(MEMORY_FILE):
         with open(MEMORY_FILE, encoding="utf-8") as f:
@@ -49,7 +54,9 @@ def _load_all():
                 line = line.strip()
                 if line:
                     try:
-                        items.append(json.loads(line))
+                        it = json.loads(line)
+                        if user is None or _owner(it) == user:
+                            items.append(it)
                     except Exception:
                         pass
     return items
@@ -98,21 +105,24 @@ def _find_similar(content, mtype, items):
     return best if best_sim >= 0.5 else None
 
 
-def add(content, mtype, source_session="default", confidence=0.9):
-    """写入一条记忆；与现有条目语义重复则更新原条目。返回是否新建。"""
+def add(content, mtype, user="admin", source_session="default", confidence=0.9):
+    """写入一条记忆（归属 user）；与同用户现有条目语义重复则更新原条目。"""
     items = _load_all()
     now = _now()
-    hit = _find_similar(content, mtype, items)
+    mine = [x for x in items if _owner(x) == user]
+    hit = _find_similar(content, mtype, mine)
     if hit:
         hit["content"] = content          # 新说法覆盖旧说法（如年级变化）
         hit["last_seen_at"] = now
         hit["confidence"] = max(hit.get("confidence", 0), confidence)
+        hit["user"] = user
         created = False
     else:
         items.append({
             "id": f"m{time.strftime('%Y%m%d_%H%M%S')}_{len(items):04d}",
             "type": mtype,
             "content": content,
+            "user": user,
             "source_session": source_session,
             "created_at": now,
             "last_seen_at": now,
@@ -120,9 +130,9 @@ def add(content, mtype, source_session="default", confidence=0.9):
             "expired": False,
         })
         created = True
-    # 容量上限：超限淘汰最旧且低置信
+    # 容量上限：按用户分桶，超限淘汰最旧且低置信
     for t, cap in CAPS.items():
-        group = sorted([x for x in items if x["type"] == t],
+        group = sorted([x for x in items if x["type"] == t and _owner(x) == user],
                        key=lambda x: (_ts(x.get("last_seen_at", "")), x.get("confidence", 0)))
         while len(group) > cap:
             worst = group.pop(0)
@@ -131,18 +141,28 @@ def add(content, mtype, source_session="default", confidence=0.9):
     return created if hit is None else False
 
 
-def delete(mid):
-    items = [x for x in _load_all() if x["id"] != mid]
+def delete(mid, user=None):
+    """user 非空时只允许删该用户自己的条目；None 表示管理员全权。"""
+    items = _load_all()
+    keep = []
+    for x in items:
+        if x["id"] == mid and (user is None or _owner(x) == user):
+            continue
+        keep.append(x)
+    items = keep
     _save_all(items)
 
 
-def clear():
-    _save_all([])
+def clear(user=None):
+    if user is None:
+        _save_all([])
+    else:
+        _save_all([x for x in _load_all() if _owner(x) != user])
 
 
-def recall(query, limit=3):
-    """返回要注入 system prompt 的记忆文本块（profile 全放，其余 BM25 取 TOP3）。"""
-    items = [x for x in _load_all() if not _expired(x)]
+def recall(query, user="admin", limit=3):
+    """返回该用户要注入 system prompt 的记忆文本块（profile 全放，其余 BM25 取 TOP3）。"""
+    items = [x for x in _load_all(user) if not _expired(x)]
     if not items:
         return ""
     profiles = [x["content"] for x in items if x["type"] == "profile"]
@@ -156,15 +176,20 @@ def recall(query, limit=3):
     return "\n".join(lines)
 
 
-def maybe_extract(session_id="default"):
+def maybe_extract(user="admin", sid="default"):
     """每满 EXTRACT_EVERY 条新消息，让模型抽取一次长期记忆。返回新记的条数。"""
     with EXTRACT_LOCK:
-        return _extract_inner(session_id)
+        return _extract_inner(user, sid)
 
 
-def _extract_inner(session_id="default"):
+def _extract_inner(user="admin", sid="default"):
+    session_id = f"{user}/{sid}"
     st = _load_state()
-    new_msgs = len(_session_history(session_id)) - st.get("processed", 0)
+    processed = st.get("processed", {})
+    if not isinstance(processed, dict):     # 兼容旧的全局 int
+        processed = {}
+    done = processed.get(session_id, 0)
+    new_msgs = len(_session_history(session_id)) - done
     if new_msgs < EXTRACT_EVERY:
         return 0
     try:
@@ -174,7 +199,7 @@ def _extract_inner(session_id="default"):
                  "只提取对长期对话有价值的：用户身份/年级/目标/弱项(profile)、偏好(preference)、"
                  "重要事实(fact)。闲聊、一次性问题不要。最多 5 条，没有就输出 []。"},
                 {"role": "user", "content": json.dumps(
-                    _session_history(session_id)[st.get("processed", 0):],
+                    _session_history(session_id)[done:],
                     ensure_ascii=False)}]
         resp = llm.chat(msgs, use_tools=False)
         raw = (resp.get("content") or "").strip()
@@ -183,9 +208,10 @@ def _extract_inner(session_id="default"):
         n = 0
         for it in arr if isinstance(arr, list) else []:
             if isinstance(it, dict) and it.get("content") and it.get("type") in CAPS:
-                add(str(it["content"])[:200], it["type"], session_id, 0.7)
+                add(str(it["content"])[:200], it["type"], user, session_id, 0.7)
                 n += 1
-        st["processed"] = len(_session_history(session_id))
+        processed[session_id] = len(_session_history(session_id))
+        st["processed"] = processed
         _save_state(st)
         return n
     except Exception:
