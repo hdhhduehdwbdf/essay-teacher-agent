@@ -28,9 +28,14 @@ GET_ROUTES = {
     "/index.html": lambda qs: (200, None, "chat.html"),
     "/admin": lambda qs: (200, None, "admin.html"),
     "/rag": lambda qs: (200, None, "rag.html"),
+    "/star": lambda qs: (200, None, "star.html"),
+    "/threads": lambda qs: (200, None, "threads.html"),
+    "/flows": lambda qs: (200, None, "flows.html"),
+    "/memory-plan": lambda qs: (200, None, "memory_plan.html"),
     "/api/stats": lambda qs: (200, api.stats(), None),
     "/api/system": lambda qs: (200, api.system(), None),
     "/api/sessions": lambda qs: (200, api.sessions_list(), None),
+    "/api/session": lambda qs: (200, api.session_current(), None),
     "/api/categories": lambda qs: (200, api.categories(), None),
     "/api/history": lambda qs: (200, api.history(), None),
     "/api/memory": lambda qs: (200, api.memory_list(), None),
@@ -46,6 +51,13 @@ class _Headers(dict):
 
 def wsgi_app(environ, start_response):
     """把现有 Handler 适配成 WSGI 应用，供 waitress 等生产服务器直接使用"""
+    if environ.get("REQUEST_METHOD") == "POST" and environ.get("PATH_INFO", "").startswith("/api/chat/stream"):
+        return _wsgi_stream(environ, start_response)
+    return _wsgi_plain(environ, start_response)
+
+
+def _wsgi_stream(environ, start_response):
+    """流式聊天：逐块 yield SSE 数据。"""
     outer_start = start_response
     handler = object.__new__(Handler)
     path = environ.get("PATH_INFO", "/")
@@ -103,6 +115,38 @@ def wsgi_app(environ, start_response):
             yield item
         t.join(timeout=5)
         return
+
+
+def _wsgi_plain(environ, start_response):
+    """普通请求：一次性返回完整响应体。"""
+    outer_start = start_response
+    handler = object.__new__(Handler)
+    path = environ.get("PATH_INFO", "/")
+    query = environ.get("QUERY_STRING", "")
+    handler.path = f"{path}?{query}" if query else path
+    handler.command = environ.get("REQUEST_METHOD", "GET")
+    handler.request_version = environ.get("SERVER_PROTOCOL", "HTTP/1.1")
+    handler.headers = _Headers({k.lower().replace("_", "-"): v
+                                for k, v in environ.items() if k.startswith("HTTP_")})
+    if environ.get("CONTENT_LENGTH"):
+        handler.headers["content-length"] = environ["CONTENT_LENGTH"]
+    length = int(environ.get("CONTENT_LENGTH") or 0)
+    handler.rfile = BytesIO(environ["wsgi.input"].read(length) if length else b"")
+    state = {"status": "", "headers": [], "body": BytesIO(), "started": False}
+
+    def _start(status, response_headers, exc_info=None):
+        if not state["started"]:
+            state["started"] = True
+            outer_start(status, response_headers, exc_info)
+
+    import http
+    handler.send_response = lambda code, message=None: state.__setitem__(
+        "status", f"{code} {http.HTTPStatus(code).phrase}")
+    handler.send_header = lambda k, v: state["headers"].append((k, v))
+    handler.end_headers = lambda: _start(state["status"], state["headers"])
+    handler.wfile = state["body"]
+    handler.log_message = lambda *a: None
+    handler.handle_expect_100 = lambda: True
     if handler.command == "POST":
         handler.do_POST()
     elif handler.command in ("GET", "HEAD"):
@@ -120,6 +164,9 @@ POST_ROUTES = {
     "/api/files/save": "file_save",
     "/api/files/upload": "file_upload",
     "/api/history/clear": "history_clear",
+    "/api/session/new": "session_new",
+    "/api/session/switch": "session_switch",
+    "/api/session/delete": "session_delete",
     "/api/memory/delete": "memory_delete",
     "/api/memory/clear": "memory_clear",
 }
@@ -189,7 +236,6 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
         self.end_headers()
         try:
             api.chat_stream(q, lambda ev: self._sse(ev))

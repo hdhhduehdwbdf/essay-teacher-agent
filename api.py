@@ -17,6 +17,7 @@ SESSION_LOCK = threading.Lock()
 START_TIME = time.time()
 
 HISTORY = []  # 当前会话记忆
+CURRENT = {"id": "default"}  # 当前会话 id
 CHAT_LOCK = threading.Lock()  # 串行化对话：防止多请求交叉写 HISTORY/会话文件
 
 
@@ -27,7 +28,9 @@ def _session_path(sid):
     return os.path.join(SESSIONS_DIR, safe + ".json")
 
 
-def save_session(sid="default"):
+def save_session(sid=None):
+    if sid is None:
+        sid = CURRENT["id"]
     with SESSION_LOCK:
         os.makedirs(SESSIONS_DIR, exist_ok=True)
         tmp = {"id": sid, "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -36,7 +39,9 @@ def save_session(sid="default"):
             json.dump(tmp, f, ensure_ascii=False)
 
 
-def load_session(sid="default"):
+def load_session(sid=None):
+    if sid is None:
+        sid = CURRENT["id"]
     p = _session_path(sid)
     if os.path.isfile(p):
         try:
@@ -135,6 +140,43 @@ def history_clear():
     HISTORY.clear()
     save_session()
     return {"ok": True}
+
+
+def session_current():
+    return 200, {"id": CURRENT["id"]}
+
+
+def session_new(_req=None):
+    save_session()
+    HISTORY.clear()
+    CURRENT["id"] = "s" + time.strftime("%Y%m%d-%H%M%S")
+    save_session()
+    return 200, {"id": CURRENT["id"]}
+
+
+def session_switch(req):
+    sid = str(req.get("id") or "default")
+    save_session()
+    HISTORY.clear()
+    CURRENT["id"] = sid
+    load_session(sid)
+    return 200, {"id": sid}
+
+
+def session_delete(req):
+    sid = str(req.get("id") or "")
+    if not sid:
+        return 400, {"error": "empty"}
+    if sid == CURRENT["id"]:
+        HISTORY.clear()
+        CURRENT["id"] = "default"
+        load_session("default")
+        if not os.path.isfile(_session_path("default")):
+            save_session("default")
+    p = _session_path(sid)
+    if os.path.isfile(p):
+        os.remove(p)
+    return 200, {"ok": True, "id": CURRENT["id"]}
 
 
 # ---------- 语料管理 ----------
@@ -269,7 +311,7 @@ def _chat_stream_inner(q, emit, knowledge_base, embeddings, chat_with_tool_loop_
     HISTORY.append({"role": "user", "content": q})
     HISTORY.append({"role": "assistant", "content": reply})
     save_session()
-    threading.Thread(target=memory.maybe_extract, args=("default",), daemon=True).start()
+    threading.Thread(target=memory.maybe_extract, args=(CURRENT["id"],), daemon=True).start()
     emit({"type": "done", "reply": reply})
     return reply
 
@@ -294,7 +336,7 @@ def _chat_inner(q, knowledge_base, embeddings, chat_with_tool_loop_collector):
     HISTORY.append({"role": "assistant", "content": reply})
     save_session()
     # 抽取放后台线程：不阻塞用户看到回复，也和下一轮对话的 LLM 调用错开
-    threading.Thread(target=memory.maybe_extract, args=("default",), daemon=True).start()
+    threading.Thread(target=memory.maybe_extract, args=(CURRENT["id"],), daemon=True).start()
     return steps, reply
 
 

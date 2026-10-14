@@ -52,7 +52,13 @@ textarea:focus { outline:none; }
     </div>
     <div class="flex items-center gap-2">
       <span v-if="messages.length > 2" class="hidden sm:inline text-[11px] text-[var(--ink-faint)]">{{ Math.ceil(messages.length/2) }} 轮对话</span>
-      <button @click="reset" class="inline-flex items-center gap-1.5 rounded-full border border-transparent px-3 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)] hover:shadow-sm">
+      <select v-model="currentId" @change="switchSession" class="rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-xs text-[var(--ink-soft)] max-w-[9rem]">
+        <option v-for="s in sessions" :key="s.id" :value="s.id">{{ s.label }}</option>
+      </select>
+      <button v-if="currentId !== 'default'" @click="deleteSession" title="删除当前会话" class="inline-flex items-center rounded-full border border-transparent px-2 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-red-400">
+        <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+      </button>
+      <button @click="newSession" class="inline-flex items-center gap-1.5 rounded-full border border-transparent px-3 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)] hover:shadow-sm">
         <i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>新对话
       </button>
     </div>
@@ -174,6 +180,8 @@ const { createApp, ref, nextTick, onMounted } = Vue;
 createApp({
   setup() {
     const messages = ref([]);
+    const sessions = ref([]);
+    const currentId = ref('default');
     const draft = ref('');
     const loading = ref(false);
     const error = ref('');
@@ -201,6 +209,8 @@ createApp({
     function renderMarkdown(text) {
       let s = String(text || '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const starCount = (s.match(/\*\*/g) || []).length;
+      if (starCount % 2 === 1) s = s.replace(/\*\*(?=[^*]*$)/, '');
       // 1) 先把代码抽成占位符，防止内部内容被后续规则二次转换
       const stash = [];
       const keep = (html) => '\u0000' + (stash.push(html) - 1) + '\u0000';
@@ -367,6 +377,60 @@ createApp({
       stepsOpen.value = {};
     }
 
+    async function loadSessions() {
+      try {
+        const res = await fetch('/api/sessions');
+        const data = await res.json();
+        sessions.value = (data.sessions || []).map(s => ({
+          id: s.id,
+          label: s.id === 'default' ? '默认会话' : (s.id.slice(1, 9) + ' 会话'),
+          updated: s.updated,
+          turns: s.turns,
+        }));
+        if (!sessions.value.some(s => s.id === currentId.value)) {
+          sessions.value.unshift({ id: currentId.value, label: '当前会话', updated: '', turns: 0 });
+        }
+      } catch(e) {}
+    }
+
+    async function newSession() {
+      try {
+        const res = await fetch('/api/session/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await res.json();
+        currentId.value = data.id || 'default';
+        messages.value = [];
+        error.value = '';
+        stepsOpen.value = {};
+        await loadSessions();
+      } catch(e) {}
+    }
+
+    async function switchSession() {
+      try {
+        const res = await fetch('/api/session/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: currentId.value }) });
+        await res.json();
+        messages.value = [];
+        error.value = '';
+        stepsOpen.value = {};
+        await restoreHistory();
+        await loadSessions();
+      } catch(e) {}
+    }
+
+    async function deleteSession() {
+      if (currentId.value === 'default') return;
+      try {
+        const res = await fetch('/api/session/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: currentId.value }) });
+        const data = await res.json();
+        currentId.value = data.id || 'default';
+        messages.value = [];
+        error.value = '';
+        stepsOpen.value = {};
+        await loadSessions();
+        await restoreHistory();
+      } catch(e) {}
+    }
+
     async function restoreHistory() {
       try {
         const res = await fetch('/api/history');
@@ -393,10 +457,11 @@ createApp({
     onMounted(() => {
       renderIcons();
       restoreHistory();
+      loadSessions();
       inp.value && inp.value.focus();
     });
 
-    return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint };
+  return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession };
   }
 }).mount('#app');
 </script>
