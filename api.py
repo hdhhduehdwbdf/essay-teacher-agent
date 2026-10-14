@@ -441,14 +441,18 @@ def auth_status(user):
     return {"ok": True, **auth.status(user)}
 
 
-def admin_users_list(_req=None):
+def admin_users_payload():
     items = []
     for name, u in sorted(auth.users().items()):
         ok, used, quota = auth.usage_check(name)
         items.append({"username": name, "role": u.get("role", "user"),
                       "quota": u.get("quota", 30), "used_today": used,
                       "created": u.get("created", "")})
-    return 200, {"users": items}
+    return {"users": items}
+
+
+def admin_users_list(_req=None):
+    return 200, admin_users_payload()
 
 
 def admin_user_create(req):

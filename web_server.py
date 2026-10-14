@@ -41,7 +41,7 @@ GET_ROUTES = {
     "/api/categories": lambda qs, user: (200, api.categories(), None),
     "/api/history": lambda qs, user: (200, api.history(user), None),
     "/api/memory": lambda qs, user: (403, {"error": "仅管理员可查看长期记忆"}, None) if auth.role(user) != "admin" else (200, api.memory_list(), None),
-    "/api/admin/users": lambda qs, user: (200, api.admin_users_list(), None),
+    "/api/admin/users": lambda qs, user: (200, api.admin_users_payload(), None),
     "/api/files": lambda qs, user: (*api.file_read(unquote(qs.get("path", [""])[0])), None),
 }
 
