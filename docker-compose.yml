@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: soul
+      POSTGRES_USER: soul
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soul"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    environment: &app_env
+      DATABASE_URL: postgresql://soul:${POSTGRES_PASSWORD:-change_me}@db:5432/soul
+      CUSTOM_API_KEY: ${CUSTOM_API_KEY}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+      ALERT_WEBHOOK: ${ALERT_WEBHOOK:-}
+      EMBED_WORKERS: "0"          # web 进程不带消费者，独立 worker 横向扩
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8080"
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["python", "worker.py"]
+    environment:
+      <<: *app_env
+      WORKERS: "4"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certbot:/etc/letsencrypt:ro
+    depends_on:
+      - app
+    restart: unless-stopped

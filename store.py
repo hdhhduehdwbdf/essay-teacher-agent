@@ -223,6 +223,17 @@ def kv_put(key, value):
     _exec("INSERT INTO kv(key,value) VALUES(?,?)", (key, json.dumps(value, ensure_ascii=False)))
 
 
+def counter_add(key, delta=1):
+    """按日计数器（LLM 调用量等）。"""
+    cur = kv_get(key, 0)
+    kv_put(key, int(cur or 0) + int(delta))
+    return int(cur or 0) + int(delta)
+
+
+def counter_get(key):
+    return int(kv_get(key, 0) or 0)
+
+
 # ---------- 任务队列 ----------
 
 def job_create(user, sid, message):

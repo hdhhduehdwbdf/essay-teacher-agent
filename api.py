@@ -70,6 +70,56 @@ def system():
             "vector_provider": getattr(config, "EMBEDDING_PROVIDER", "")}
 
 
+def health():
+    """探活（公开，无鉴权）：供 UptimeRobot / 云监控拨测。"""
+    try:
+        store.sessions_of("__ping__")
+        db_ok = True
+    except Exception as e:
+        return 503, {"ok": False, "db": f"{type(e).__name__}: {e}"}
+    return 200, {"ok": True, "db": store.backend_name(),
+                 "uptime_sec": int(time.time() - START_TIME)}
+
+
+def metrics():
+    """P3 运营看板数据（仅管理员）：调用量 / LLM 次数 / 队列 / 失败 / 最近耗时。"""
+    import time as _t
+    today = _t.strftime("%Y-%m-%d")
+    llm_calls = store.counter_get("llm_calls:" + today)
+    jobs = _rows_jobs_stats()
+    per_user = []
+    for name, u in sorted(auth.users().items()):
+        used = store.usage_count(today, name)
+        per_user.append({"username": name, "role": u.get("role", "user"),
+                         "quota": u.get("quota", 30), "used_today": used})
+    return {"day": today, "llm_calls": llm_calls, "users": per_user,
+            "backend": store.backend_name(), **jobs}
+
+
+def _rows_jobs_stats():
+    jobs = store._rows("SELECT * FROM jobs ORDER BY id DESC LIMIT 500")
+    today = time.strftime("%Y-%m-%d")
+    by_status = {}
+    failed_today, durations = 0, []
+    for j in jobs:
+        by_status[j["status"]] = by_status.get(j["status"], 0) + 1
+        if j["status"] == "failed" and time.strftime("%Y-%m-%d", time.localtime(j["created_at"] or 0)) == today:
+            failed_today += 1
+        if j["status"] == "done" and j["claimed_at"] and j["finished_at"]:
+            durations.append(j["finished_at"] - j["claimed_at"])
+    durations.sort()
+    avg = round(sum(durations) / len(durations), 2) if durations else 0
+    p95 = round(durations[min(len(durations) - 1, int(len(durations) * 0.95))], 2) if durations else 0
+    recent = sorted(jobs, key=lambda x: -(x["finished_at"] or x["created_at"] or 0))[:10]
+    return {"jobs_total": len(jobs), "by_status": by_status, "failed_today": failed_today,
+            "avg_sec": avg, "p95_sec": p95,
+            "recent": [{"id": j["id"], "user": j["user"], "status": j["status"],
+                        "error": (j.get("error") or "")[:80],
+                        "sec": round((j["finished_at"] or 0) - (j["claimed_at"] or 0), 1) if j["claimed_at"] and j["finished_at"] else None,
+                        "at": time.strftime("%m-%d %H:%M:%S", time.localtime(j["created_at"] or time.time()))}
+                       for j in recent]}
+
+
 def sessions_list(user=None, is_admin=False):
     rows = store.sessions_all() if is_admin else store.sessions_of(user or "")
     items = []
@@ -348,7 +398,24 @@ def run_job(job):
         return reply
     except Exception as e:
         store.job_finish(job_id, "failed", error=f"{type(e).__name__}: {e}")
+        _alert(f"任务 {job_id} 执行失败：{type(e).__name__}: {e}")
         return ""
+
+
+def _alert(text):
+    """失败告警：配置 ALERT_WEBHOOK 环境变量后，worker 执行失败即 POST JSON。"""
+    url = os.environ.get("ALERT_WEBHOOK", "").strip()
+    if not url:
+        print(f"[alert] {text}", flush=True)
+        return
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            url, data=json.dumps({"text": text}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"[alert] 发送失败：{type(e).__name__}: {e}", flush=True)
 
 
 # ---------- 长期记忆管理 ----------

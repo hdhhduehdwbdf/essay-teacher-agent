@@ -35,9 +35,11 @@ GET_ROUTES = {
     "/threads": lambda qs, user: (200, None, "threads.html"),
     "/flows": lambda qs, user: (200, None, "flows.html"),
     "/memory-plan": lambda qs, user: (200, None, "memory_plan.html"),
+    "/ops": lambda qs, user: (200, None, "ops.html"),
     "/api/auth/status": lambda qs, user: (200, api.auth_status(user), None),
     "/api/stats": lambda qs, user: (200, api.stats(), None),
     "/api/system": lambda qs, user: (200, api.system(), None),
+    "/api/metrics": lambda qs, user: (200, api.metrics(), None),
     "/api/sessions": lambda qs, user: (200, api.sessions_list(user, auth.role(user) == "admin"), None),
     "/api/session": lambda qs, user: (200, api.session_current(user), None),
     "/api/categories": lambda qs, user: (200, api.categories(), None),
@@ -48,9 +50,10 @@ GET_ROUTES = {
 }
 
 # 需要管理员身份的路径
-ADMIN_ONLY_PAGES = ("/admin",)
+ADMIN_ONLY_PAGES = ("/admin", "/ops")
 ADMIN_ONLY_API = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
-                  "/api/memory/delete", "/api/memory/clear", "/api/memory", "/api/files", "/api/categories")
+                  "/api/memory/delete", "/api/memory/clear", "/api/memory", "/api/files", "/api/categories",
+                  "/api/metrics")
 
 
 class _Headers(dict):
@@ -227,6 +230,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             qs = parse_qs(parsed.query)
+            print(f"[access] GET {parsed.path}", flush=True)
+            if parsed.path == "/api/health":
+                code, payload = api.health()
+                self._json(code, payload)
+                return
             if parsed.path.startswith("/vendor/"):
                 self._static(os.path.basename(parsed.path), VENDOR)
                 return
@@ -313,6 +321,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             path = urlparse(self.path).path
+            print(f"[access] POST {path}", flush=True)
             n = int(self.headers.get("Content-Length", 0))
             req = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
             if path == "/api/auth/login":

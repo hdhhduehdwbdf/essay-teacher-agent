@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>运营看板 · 叁月聚粮分身</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>body{font-family:"Segoe UI","Microsoft YaHei",sans-serif}</style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+<div class="max-w-6xl mx-auto p-6">
+  <header class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-3">
+      <i data-lucide="gauge" class="w-7 h-7 text-emerald-400"></i>
+      <div>
+        <h1 class="text-xl font-bold">运营看板</h1>
+        <p class="text-xs text-slate-400" id="meta">加载中…</p>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <a href="/admin" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm">管理台</a>
+      <button id="refresh" class="px-3 py-2 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-sm">刷新</button>
+    </div>
+  </header>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400">今日 LLM 调用</p>
+      <p class="text-2xl font-bold" id="m-llm">-</p>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400">任务总数</p>
+      <p class="text-2xl font-bold" id="m-jobs">-</p>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400">今日失败</p>
+      <p class="text-2xl font-bold" id="m-fail">-</p>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <p class="text-xs text-slate-400">平均耗时 / P95</p>
+      <p class="text-2xl font-bold" id="m-latency">-</p>
+    </div>
+  </div>
+
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="bg-slate-900 rounded-xl border border-slate-800 p-4">
+      <p class="text-xs text-slate-400 mb-3">每用户今日用量 / 额度</p>
+      <div id="users" class="space-y-2 text-sm"></div>
+    </div>
+    <div class="bg-slate-900 rounded-xl border border-slate-800 p-4">
+      <p class="text-xs text-slate-400 mb-3">最近任务（含失败原因）</p>
+      <div id="recent" class="space-y-1.5 text-xs max-h-[50vh] overflow-y-auto"></div>
+    </div>
+  </div>
+</div>
+<script>
+const _origFetch = window.fetch;
+window.fetch = async function (url, opts) {
+  const res = await _origFetch(url, opts);
+  if (res && res.status === 401) { location.href = '/login'; }
+  return res;
+};
+
+async function load() {
+  const d = await (await fetch('/api/metrics')).json();
+  document.getElementById('meta').textContent = d.day + ' · 存储 ' + d.backend + ' · LLM 计数为当日模型请求次数';
+  document.getElementById('m-llm').textContent = d.llm_calls;
+  document.getElementById('m-jobs').textContent = d.jobs_total;
+  document.getElementById('m-fail').textContent = d.failed_today;
+  document.getElementById('m-latency').textContent = d.avg_sec + 's / ' + d.p95_sec + 's';
+  const ub = document.getElementById('users');
+  ub.innerHTML = '';
+  d.users.forEach(u => {
+    const pct = Math.min(100, Math.round(u.used_today / Math.max(u.quota, 1) * 100));
+    const row = document.createElement('div');
+    row.innerHTML = '<div class="flex justify-between mb-0.5"><span>' + u.username + (u.role==='admin'?' <span class="text-amber-400 text-xs">(管理员)</span>':'') + '</span><span class="text-slate-400">' + u.used_today + ' / ' + u.quota + '</span></div>' +
+      '<div class="h-1 bg-slate-800 rounded-full"><div class="h-1 ' + (u.used_today>=u.quota?'bg-red-500':'bg-emerald-500') + ' rounded-full" style="width:' + Math.min(100, u.used_today/(u.quota||30)*100) + '%"></div></div>';
+    ub.appendChild(row);
+  });
+  const rb = document.getElementById('recent');
+  rb.innerHTML = d.recent.length ? '' : '<p class="text-slate-500">暂无任务。</p>';
+  d.recent.forEach(j => {
+    const div = document.createElement('div');
+    const color = j.status==='done' ? 'text-emerald-400' : (j.status==='failed' ? 'text-red-400' : 'text-amber-400');
+    div.className = 'flex items-center gap-2 p-1.5 rounded bg-slate-950 border border-slate-800';
+    div.innerHTML = '<span class="' + color + '">#' + j.id + '</span><span class="text-slate-300">' + j.user + '</span>' +
+      '<span class="' + color + '">' + j.status + '</span>' +
+      '<span class="text-slate-500 truncate flex-1">' + (j.error ? j.error : '') + '</span>' +
+      '<span class="text-slate-600">' + (j.sec!=null ? j.sec+'s' : '') + ' · ' + j.at + '</span>';
+    rb.appendChild(div);
+  });
+}
+document.getElementById('refresh').onclick = load;
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>
