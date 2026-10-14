@@ -36,11 +36,11 @@ GET_ROUTES = {
     "/api/auth/status": lambda qs, user: (200, api.auth_status(user), None),
     "/api/stats": lambda qs, user: (200, api.stats(), None),
     "/api/system": lambda qs, user: (200, api.system(), None),
-    "/api/sessions": lambda qs, user: (200, api.sessions_list(), None),
+    "/api/sessions": lambda qs, user: (200, api.sessions_list(user, auth.role(user) == "admin"), None),
     "/api/session": lambda qs, user: (200, api.session_current(user), None),
     "/api/categories": lambda qs, user: (200, api.categories(), None),
     "/api/history": lambda qs, user: (200, api.history(user), None),
-    "/api/memory": lambda qs, user: (200, api.memory_list(), None),
+    "/api/memory": lambda qs, user: (403, {"error": "仅管理员可查看长期记忆"}, None) if auth.role(user) != "admin" else (200, api.memory_list(), None),
     "/api/admin/users": lambda qs, user: (200, api.admin_users_list(), None),
     "/api/files": lambda qs, user: (*api.file_read(unquote(qs.get("path", [""])[0])), None),
 }
@@ -48,7 +48,7 @@ GET_ROUTES = {
 # 需要管理员身份的路径
 ADMIN_ONLY_PAGES = ("/admin",)
 ADMIN_ONLY_API = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
-                  "/api/memory/delete", "/api/memory/clear", "/api/files", "/api/categories")
+                  "/api/memory/delete", "/api/memory/clear", "/api/memory", "/api/files", "/api/categories")
 
 
 class _Headers(dict):

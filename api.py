@@ -14,7 +14,6 @@ import auth  # noqa: E402
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
-SESSION_LOCK = threading.Lock()
 START_TIME = time.time()
 
 CURRENT = {}  # user -> 当前会话 id
@@ -43,15 +42,6 @@ def _session_lock(user, sid):
                 _LOCKS.clear()
             _LOCKS[key] = threading.Lock()
         return _LOCKS[key]
-
-
-def _legacy_session_path(sid):
-    safe = "".join(c for c in sid if c.isalnum() or c in "-_") or "default"
-    return os.path.join(SESSIONS_DIR, safe + ".json")
-
-
-def _legacy_session_path_unused():
-    pass
 
 
 def save_session(user, sid, history):
@@ -125,10 +115,13 @@ def system():
             "vector_provider": getattr(config, "EMBEDDING_PROVIDER", "")}
 
 
-def sessions_list():
+def sessions_list(user=None, is_admin=False):
     items = []
+    own_dir = _user_dir(user or "")
     if os.path.isdir(SESSIONS_DIR):
         for root, _dirs, files in os.walk(SESSIONS_DIR):
+            if not is_admin and os.path.abspath(root) != os.path.abspath(own_dir):
+                continue
             for fn in sorted(files):
                 if not fn.endswith(".json"):
                     continue
@@ -136,8 +129,9 @@ def sessions_list():
                     with open(os.path.join(root, fn), encoding="utf-8") as f:
                         d = json.load(f)
                     rel = os.path.relpath(os.path.join(root, fn), SESSIONS_DIR)
-                    sid = rel[:-5].replace(os.sep, "__")
-                    items.append({"id": sid, "user": d.get("user", ""),
+                    key = rel[:-5].replace(os.sep, "__")
+                    sid = d.get("id") or fn[:-5]
+                    items.append({"id": sid, "key": key, "user": d.get("user", ""),
                                   "updated": d.get("updated", ""),
                                   "turns": len(d.get("history", [])) // 2})
                 except Exception:

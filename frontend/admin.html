@@ -365,7 +365,7 @@ document.getElementById('hist-view').onclick = async ()=>{
       s.sessions.forEach(x=>{
         const div = document.createElement('div');
         div.className = 'p-2 rounded-lg bg-slate-950 border border-slate-800';
-        div.innerHTML = `<span class="text-emerald-400">${x.id}</span> <span class="text-slate-400">· ${x.updated} · ${x.turns} 轮</span>`;
+        div.innerHTML = `<span class="text-emerald-400">${x.user ? x.user + " / " + x.id : x.id}</span> <span class="text-slate-400">· ${x.updated} · ${x.turns} 轮</span>`;
         box.appendChild(div);
       });
     }
