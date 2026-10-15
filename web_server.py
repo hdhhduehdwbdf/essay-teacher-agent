@@ -47,6 +47,9 @@ GET_ROUTES = {
     "/api/memory": lambda qs, user: (403, {"error": "仅管理员可查看长期记忆"}, None) if auth.role(user) != "admin" else (200, api.memory_list(), None),
     "/api/admin/users": lambda qs, user: (200, api.admin_users_payload(), None),
     "/api/weakpoints": lambda qs, user: api.weakpoints_list(qs, user),
+    "/api/admin/user": lambda qs, user: api.admin_user_overview(unquote((qs.get("username") or [""])[0])),
+    "/api/admin/user/history": lambda qs, user: api.admin_user_history(
+        unquote((qs.get("username") or [""])[0]), unquote((qs.get("sid") or [""])[0])),
     "/api/files": lambda qs, user: (*api.file_read(unquote(qs.get("path", [""])[0])), None),
 }
 
@@ -55,6 +58,7 @@ ADMIN_ONLY_PAGES = ("/admin", "/ops")
 ADMIN_ONLY_API = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
                   "/api/memory/delete", "/api/memory/clear", "/api/memory", "/api/files", "/api/categories",
                   "/api/metrics", "/api/admin/users")
+ADMIN_ONLY_API += ("/api/admin/user", "/api/admin/user/history")
 
 
 class _Headers(dict):
@@ -192,6 +196,7 @@ POST_ROUTES = {
     "/api/admin/users/delete": lambda req, user: api.admin_user_delete(req),
     "/api/admin/users/approve": lambda req, user: api.admin_user_approve(req),
     "/api/admin/users/reject": lambda req, user: api.admin_user_reject(req),
+    "/api/admin/user/history/clear": lambda req, user: api.admin_user_history_clear(req),
     "/api/chat/stop": lambda req, user: api.chat_stop(req, user),
     "/api/weakpoints/suggest": lambda req, user: api.weakpoints_suggest(req, user),
     "/api/weakpoints/add": lambda req, user: api.weakpoints_add(req, user),
@@ -208,7 +213,8 @@ POST_ROUTES = {
 ADMIN_ONLY_POST = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
                    "/api/memory/delete", "/api/memory/clear", "/api/admin/users", "/api/admin/users/create",
                    "/api/admin/users/password", "/api/admin/users/quota", "/api/admin/users/delete",
-                   "/api/admin/users/approve", "/api/admin/users/reject")
+                   "/api/admin/users/approve", "/api/admin/users/reject",
+                   "/api/admin/user/history/clear")
 
 
 class Handler(BaseHTTPRequestHandler):

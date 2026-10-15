@@ -67,16 +67,16 @@
     </div>
     <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
       <p class="text-xs text-slate-400 mb-2 flex items-center gap-1"><i data-lucide="history" class="w-3 h-3"></i>会话历史</p>
-      <p class="text-sm" id="hist-count">-</p>
+      <select id="user-select" class="w-full mb-2 rounded bg-slate-950 border border-slate-700 px-2 py-1 text-xs"></select>
       <div class="flex gap-2 mt-2">
-        <button id="hist-view" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">查看</button>
-        <button id="hist-clear" class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30">清空</button>
+        <button id="hist-view" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">查看该用户</button>
+        <button id="hist-clear" class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30">清空所选会话</button>
       </div>
     </div>
   </div>
 
   <div id="hist-panel" class="hidden bg-slate-900 rounded-xl border border-slate-800 p-4 mb-6">
-    <p class="text-xs text-slate-400 mb-2">最近对话（服务端记忆，最近 20 轮）</p>
+    <p class="text-xs text-slate-400 mb-2" id="hist-title">用户档案</p>
     <div id="hist-list" class="space-y-2 max-h-64 overflow-y-auto text-xs"></div>
   </div>
 
@@ -312,8 +312,13 @@ async function loadCats(){
     </div>`).join('');
 }
 async function loadHistory(){
-  const d = await (await fetch('/api/history')).json();
-  document.getElementById('hist-count').textContent = `${d.history.length/2} 轮对话`;
+  const d = await (await fetch('/api/admin/users')).json();
+  const sel = document.getElementById('user-select');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">选择用户…</option>' +
+    d.users.filter(u => u.status !== 'pending').map(u =>
+      `<option value="${u.username}">${u.username}（uid ${u.uid ?? '-'}）</option>`).join('');
+  if (prev && d.users.some(u => u.username === prev)) sel.value = prev;
 }
 async function loadMemory(){
   const d = await (await fetch('/api/memory')).json();
@@ -345,38 +350,63 @@ document.getElementById('mem-clear').onclick = async ()=>{
 document.getElementById('hist-view').onclick = async ()=>{
   const panel = document.getElementById('hist-panel');
   panel.classList.toggle('hidden');
-  if(!panel.classList.contains('hidden')){
-    const d = await (await fetch('/api/history')).json();
-    const box = document.getElementById('hist-list');
-    box.innerHTML = d.history.length ? '' : '<p class="text-slate-500">暂无对话记录。</p>';
-    d.history.forEach(m=>{
-      const div = document.createElement('div');
-      div.className = 'p-2 rounded-lg ' + (m.role==='user'?'bg-slate-800':'bg-slate-950 border border-slate-800');
-      div.innerHTML = `<span class="text-amber-400 font-semibold">${m.role==='user'?'问':'答'}</span> <span class="text-slate-300">${(m.content||'').replace(/</g,'&lt;').slice(0,200)}</span>`;
-      box.appendChild(div);
-    });
-    const s = await (await fetch('/api/sessions')).json();
-    if(s.sessions.length){
-      const hr = document.createElement('hr');
-      hr.className = 'border-slate-800 my-2';
-      box.appendChild(hr);
-      const t = document.createElement('p');
-      t.className = 'text-slate-400 font-semibold';
-      t.textContent = '落盘会话（重启不丢）：';
-      box.appendChild(t);
-      s.sessions.forEach(x=>{
-        const div = document.createElement('div');
-        div.className = 'p-2 rounded-lg bg-slate-950 border border-slate-800';
-        div.innerHTML = `<span class="text-emerald-400">${x.user ? x.user + " / " + x.id : x.id}</span> <span class="text-slate-400">· ${x.updated} · ${x.turns} 轮</span>`;
-        box.appendChild(div);
-      });
-    }
-  }
+  if(panel.classList.contains('hidden')) return;
+  await loadUserOverview();
 };
+
+let selSession = null;
+async function renderUserMessages(username, sid){
+  const box = document.getElementById('hist-list');
+  selSession = {username, sid};
+  const d = await (await fetch(`/api/admin/user/history?username=${encodeURIComponent(username)}&sid=${encodeURIComponent(sid)}`)).json();
+  document.getElementById('hist-title').textContent = `用户 ${username} · 会话 ${sid} · ${d.history.length/2} 轮`;
+  box.innerHTML = d.history.length ? '' : '<p class="text-slate-500">该会话暂无内容。</p>';
+  d.history.forEach(m=>{
+    const div = document.createElement('div');
+    div.className = 'p-2 rounded-lg ' + (m.role==='user'?'bg-slate-800':'bg-slate-950 border border-slate-800');
+    div.innerHTML = `<span class="text-amber-400 font-semibold">${m.role==='user'?'问':'答'}</span> <span class="text-slate-300">${(m.content||'').replace(/</g,'&lt;').slice(0,300)}</span>`;
+    box.appendChild(div);
+  });
+  box.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+async function loadUserOverview(){
+  const username = document.getElementById('user-select').value;
+  const box = document.getElementById('hist-list');
+  const title = document.getElementById('hist-title');
+  if(!username){ box.innerHTML = '<p class="text-slate-500">先选择一个用户。</p>'; return; }
+  selSession = null;
+  const r = await fetch('/api/admin/user?username=' + encodeURIComponent(username));
+  if(!r.ok){ box.innerHTML = '<p class="text-red-400">加载失败。</p>'; return; }
+  const d = await r.json();
+  title.textContent = `用户 ${d.username}（uid ${d.uid}）· 今日 ${d.used_today}/${d.quota} · 状态 ${d.status}`;
+  box.innerHTML = '';
+  const sec = (t)=>{ const p=document.createElement('p'); p.className='text-slate-400 font-semibold mt-2'; p.textContent=t; box.appendChild(p); };
+  sec(`会话（${d.sessions.length} 个）`);
+  if(!d.sessions.length){ box.insertAdjacentHTML('beforeend','<p class="text-slate-500">暂无会话。</p>'); }
+  d.sessions.forEach(x=>{
+    const div = document.createElement('div');
+    div.className = 'p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer hover:border-slate-600';
+    div.innerHTML = `<span class="text-emerald-400">${x.id}</span> <span class="text-slate-400">· ${x.updated} · ${x.turns} 轮</span>`;
+    div.onclick = ()=> renderUserMessages(username, x.id);
+    box.appendChild(div);
+  });
+  sec(`长期记忆（${d.memory.length} 条）`);
+  d.memory.slice(0, 12).forEach(it=>{
+    box.insertAdjacentHTML('beforeend',
+      `<div class="p-2 rounded-lg bg-slate-950 border border-slate-800 flex items-start gap-2">
+        <span class="text-slate-500 shrink-0">[${it.type}]</span>
+        <span class="text-slate-300 flex-1">${(it.content||'').replace(/</g,'&lt;')}</span>
+        ${it.expired?'<span class="text-slate-600 text-[10px] shrink-0">已过期</span>':''}
+      </div>`);
+  });
+}
 document.getElementById('hist-clear').onclick = async e=>{
-  if(!confirm('确定清空服务端会话记忆？')) return;
-  await fetch('/api/history/clear',{method:'POST'});
-  loadHistory(); document.getElementById('hist-list').innerHTML = '';
+  if(!selSession){ alert('先在列表里点开一个会话'); return; }
+  if(!confirm(`清空 ${selSession.username} 的会话 ${selSession.sid}？`)) return;
+  await fetch('/api/admin/user/history/clear',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(selSession)});
+  await loadUserOverview();
 };
 loadStats(); loadFiles();
 

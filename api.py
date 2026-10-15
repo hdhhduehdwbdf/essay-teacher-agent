@@ -573,8 +573,10 @@ def auth_status(user):
 def admin_users_payload():
     items = []
     for name, u in sorted(auth.users().items()):
+        urow = store.users_all().get(name) or {}
         ok, used, quota = auth.usage_check(name)
-        items.append({"username": name, "role": u.get("role", "user"),
+        items.append({"username": name, "uid": urow.get("uid"),
+                      "role": u.get("role", "user"),
                       "quota": u.get("quota", 30), "used_today": used,
                       "created": u.get("created", ""),
                       "status": u.get("status", "active"), "note": u.get("note", "")})
@@ -587,6 +589,49 @@ def admin_user_approve(req):
 
 def admin_user_reject(req):
     return auth.reject_user(req.get("username"))
+
+
+def admin_user_overview(username):
+    """管理台按用户查看：只返回这一个用户的会话 / 记忆 / 用量。"""
+    import memory
+    username = str(username or "").strip()
+    u = store.users_all().get(username)
+    if not u:
+        return 404, {"error": "用户不存在"}
+    sessions = []
+    for r in store.sessions_of(username):
+        try:
+            turns = len(json.loads(r["history"] or "[]")) // 2
+        except Exception:
+            turns = 0
+        sessions.append({"id": r["id"], "updated": r.get("updated", ""), "turns": turns})
+    ok, used, quota = auth.usage_check(username)
+    items = memory._load_all(username)
+    items.sort(key=lambda x: x.get("last_seen_at", ""), reverse=True)
+    return 200, {"username": username, "uid": u.get("uid"),
+                 "role": u.get("role", "user"), "status": u.get("status", "active"),
+                 "quota": quota, "used_today": used, "sessions": sessions,
+                 "memory": [{"id": it["id"], "type": it["type"], "content": it["content"],
+                             "created_at": it.get("created_at", ""), "expired": it.get("expired")} for it in items]}, None
+
+
+def admin_user_history(username, sid):
+    username = str(username or "").strip()
+    if not store.users_all().get(username):
+        return 404, {"error": "用户不存在"}
+    return 200, {"history": store.session_load(username, sid)[-200:]}, None
+
+
+def admin_user_history_clear(req):
+    """管理员清空某个用户的指定会话。"""
+    username = str(req.get("username") or "").strip()
+    sid = str(req.get("sid") or "").strip()
+    if not store.users_all().get(username):
+        return 404, {"error": "用户不存在"}
+    if not sid:
+        return 400, {"error": "empty sid"}
+    store.session_save(username, sid, [])
+    return 200, {"ok": True}
 
 
 def admin_users_list(_req=None):
