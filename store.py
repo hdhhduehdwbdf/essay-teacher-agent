@@ -228,6 +228,19 @@ def sessions_purge(user):
     _exec("DELETE FROM sessions WHERE uid=?", (_uid(user),))
 
 
+def jobs_purge(user):
+    """删除该用户的全部任务（注销时清理，防止被继续执行）。"""
+    _exec("DELETE FROM job_events WHERE job_id IN (SELECT id FROM jobs WHERE uid=?)", (_uid(user),))
+    _exec("DELETE FROM jobs WHERE uid=?", (_uid(user),))
+
+
+def kv_del_prefix(prefix):
+    """删除指定前缀的键（如用户注销后残留的 cur:{user}）。"""
+    rows = _rows("SELECT key FROM kv WHERE key LIKE ?", (prefix + "%",))
+    for r in rows:
+        _exec("DELETE FROM kv WHERE key=?", (r["key"],))
+
+
 def sessions_of(user):
     return _rows("SELECT sid AS id, user, uid, updated, history FROM sessions WHERE uid=? ORDER BY updated DESC", (_uid(user),))
 

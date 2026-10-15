@@ -40,7 +40,7 @@ GET_ROUTES = {
     "/api/stats": lambda qs, user: (200, api.stats(user, auth.role(user) == "admin"), None),
     "/api/system": lambda qs, user: (200, api.system(), None),
     "/api/metrics": lambda qs, user: (200, api.metrics(), None),
-    "/api/sessions": lambda qs, user: (200, api.sessions_list(user, auth.role(user) == "admin"), None),
+    "/api/sessions": lambda qs, user: (200, api.sessions_list(user, False), None),
     "/api/session": lambda qs, user: (200, api.session_current(user), None),
     "/api/categories": lambda qs, user: (200, api.categories(), None),
     "/api/history": lambda qs, user: (200, api.history(user), None),
@@ -58,7 +58,7 @@ ADMIN_ONLY_PAGES = ("/admin", "/ops")
 ADMIN_ONLY_API = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
                   "/api/memory/delete", "/api/memory/clear", "/api/memory", "/api/files", "/api/categories",
                   "/api/metrics", "/api/admin/users")
-ADMIN_ONLY_API += ("/api/admin/user", "/api/admin/user/history")
+ADMIN_ONLY_API += ("/api/admin/user", "/api/admin/user/history", "/api/system")
 
 
 class _Headers(dict):

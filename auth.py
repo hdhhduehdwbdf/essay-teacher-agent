@@ -132,7 +132,9 @@ def _purge_user_data(username):
         store.sessions_purge(username)
         store.memory_clear(username)
         store.usage_purge(username)
+        store.jobs_purge(username)
         store.cards_clear(username)
+        store.kv_del_prefix(f"cur:{username}")
         store.user_delete(username)
 
 
