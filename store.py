@@ -430,7 +430,7 @@ def card_get(user, card_id):
 
 def card_add(user, point, ctype, evidence="", deck="", session_ref=""):
     card_id = "c" + secrets_hex8() + time.strftime("%H%M%S")
-    _exec("INSERT INTO weak_cards(id,uid,user,deck,point,type,evidence,session_ref,created,mastered) VALUES(?,?,?,?,?,?,?,?,?,0)",
+    _exec("INSERT INTO weak_cards(id,uid,user,deck,point,type,evidence,session_ref,created,mastered,hits) VALUES(?,?,?,?,?,?,?,?,?,0,1)",
           (card_id, _uid(user), user, deck or "", point, ctype, evidence, session_ref,
            time.strftime("%Y-%m-%d %H:%M:%S")))
     return card_get(user, card_id)

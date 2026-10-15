@@ -662,18 +662,21 @@ createApp({
       if (!items.length) { flash('至少勾一条'); return; }
       if (savingCard.value) return;
       savingCard.value = true;
-      const res = await fetch('/api/weakpoints/add_many', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, deck: wpSuggest.value.deck })
-      });
-      const d = await res.json();
-      wpSuggest.value = { items: [], deck: '' };
-      cardsOpen.value = true;
-      if (d.decks) wpDecks.value = d.decks;
-      if (d.stats) wpStats.value = d.stats;
-      if (d.cards) wpCards.value = d.cards.map(c => ({ ...c }));
-      flash('已存 ' + (d.added || 0) + ' 张卡片' + (d.merged ? ('，另有 ' + d.merged + ' 张与已有重复、已累计') : ''));
-      savingCard.value = false;
+      try {
+        const res = await fetch('/api/weakpoints/add_many', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items, deck: wpSuggest.value.deck })
+        });
+        const d = await res.json();
+        if (!d.ok) { flash(d.error || '保存失败'); return; }
+        wpSuggest.value = { items: [], deck: '' };
+        cardsOpen.value = true;
+        if (d.decks) wpDecks.value = d.decks;
+        if (d.stats) wpStats.value = d.stats;
+        if (d.cards) wpCards.value = d.cards.map(c => ({ ...c }));
+        flash('已存 ' + (d.added || 0) + ' 张卡片' + (d.merged ? ('，另有 ' + d.merged + ' 张与已有重复、已累计') : ''));
+      } catch (e) { flash('保存失败'); }
+      finally { savingCard.value = false; }
     }
 
     function retrySend() {
