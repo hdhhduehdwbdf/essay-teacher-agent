@@ -145,8 +145,9 @@ def suggest(user, message, reply):
         prompt = (_EXTRACT_PROMPT
                   .replace("__USER__", (message or "")[:1500])
                   .replace("__REPLY__", (reply or "")[:2500]))
-        raw = llm.chat([{"role": "system", "content": "你是严谨的知识点抽取器，只输出 JSON 数组。"},
-                        {"role": "user", "content": prompt}], use_tools=False, max_tokens=600)
+        resp = llm.chat([{"role": "system", "content": "你是严谨的知识点抽取器，只输出 JSON 数组。"},
+                         {"role": "user", "content": prompt}], use_tools=False, max_tokens=600)
+        raw = (resp.get("content") or "").strip() if isinstance(resp, dict) else str(resp)
         items = json.loads(re.search(r"\[.*\]", raw, re.S).group(0))
         if not isinstance(items, list):
             raise ValueError
