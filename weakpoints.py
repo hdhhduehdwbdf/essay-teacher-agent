@@ -2,6 +2,7 @@
 """薄弱点卡片：AI 每轮抽取候选（只抽不存，前端确认后入库），全部按用户隔离。"""
 import json
 import re
+from difflib import SequenceMatcher
 
 import store
 
@@ -64,23 +65,53 @@ def deck_delete(user, deck_id):
     return 200, {"ok": True}
 
 
-def add(user, point, ctype="知识点", evidence="", deck="", session_ref=""):
+def _norm(s):
+    return re.sub(r"[\s，。、；：？！\"'（）()\-—*#]", "", str(s or "")).lower()
+
+
+def _similar(a, b):
+    a, b = _norm(a), _norm(b)
+    if not a or not b:
+        return False
+    if a == b or a in b or b in a:
+        return True
+    return SequenceMatcher(None, a, b).ratio() >= 0.62
+
+
+def add(user, point, ctype="知识点", evidence="", deck="", session_ref="", source="manual"):
     point = str(point or "").strip()[:200]
     if not point:
         return 400, {"error": "内容不能为空"}
     ctype = ctype if ctype in ("知识点", "技巧", "易错点", "素材") else "知识点"
+    dedupe = source != "manual"
+    dup = None
+    for c in store.cards_list(user):
+        hit = _similar(c["point"], point) if dedupe else _norm(c["point"]) == _norm(point)
+        if hit:
+            dup = c
+            break
+    if dup:
+        merged_ev = (dup["evidence"] or "")
+        if evidence and evidence not in merged_ev:
+            merged_ev = (merged_ev + "；" + evidence[:200])[:300]
+        card = store.card_update(user, dup["id"], evidence=merged_ev)
+        return 200, {"ok": True, "card": _payload(card), "merged": True}
     card = store.card_add(user, point, ctype, evidence[:200], deck, session_ref)
-    return 200, {"ok": True, "card": _payload(card)}
+    return 200, {"ok": True, "card": _payload(card), "merged": False}
 
 
 def add_many(user, items, deck="", session_ref=""):
     added = []
+    merged = 0
     for it in items[:MAX_PER_TURN]:
         code, r = add(user, it.get("point", ""), it.get("type", "知识点"),
-                      it.get("evidence", ""), it.get("deck") or deck, session_ref)
+                      it.get("evidence", ""), it.get("deck") or deck, session_ref, "extract")
         if code == 200:
-            added.append(r["card"])
-    return 200, {"ok": True, "cards": added}
+            if r.get("merged"):
+                merged += 1
+            else:
+                added.append(r["card"])
+    return 200, {"ok": True, "cards": added, "added": len(added), "merged": merged}
 
 
 def update(user, card_id, **kw):

@@ -125,6 +125,9 @@ textarea:focus { outline:none; }
               <button @click="copyText(i)" class="copy-btn inline-flex items-center gap-1 text-[11px] text-[var(--ink-faint)] hover:text-[var(--ink)] transition-colors">
                 <i data-lucide="copy" class="h-3 w-3"></i>{{ copiedIdx === i ? '已复制' : '复制' }}
               </button>
+              <button @click="openPick(i)" :disabled="extractingIdx === i" class="copy-btn inline-flex items-center gap-1 text-[11px] text-[var(--ink-faint)] hover:text-[var(--ink)] transition-colors">
+                <i data-lucide="layers" class="h-3 w-3"></i>{{ extractingIdx === i ? '整理中…' : '存成卡片' }}
+              </button>
             </div>
           </div>
         </div>
@@ -147,6 +150,10 @@ textarea:focus { outline:none; }
       <i data-lucide="alert-circle" class="h-4 w-4 shrink-0"></i>
       <span>{{ error }}</span>
       <button @click="retrySend" class="ml-1 text-[12px] underline underline-offset-2 hover:text-[var(--ink)]">重试</button>
+    </p>
+
+    <p v-if="notice" class="msg-in flex items-center gap-2 text-[12px] text-[var(--ink-soft)]">
+      <i data-lucide="check-circle-2" class="h-3.5 w-3.5 shrink-0"></i><span>{{ notice }}</span>
     </p>
   </div>
 
@@ -279,6 +286,8 @@ createApp({
     const wpDraft = ref('');
     const wpSuggest = ref({ items: [], deck: '' });
     const lastUserText = ref('');
+    const extractingIdx = ref(-1);
+    const notice = ref('');
     const loadingHints = [
       '正在读你的文章……',
       '让我想想怎么说……',
@@ -444,8 +453,31 @@ createApp({
         }
       }
       renderIcons(); scrollBottom();
-      if (m.text) maybeSuggest(lastUserText.value, m.text);
       return true;
+    }
+
+    async function flash(msg) {
+      notice.value = msg;
+      setTimeout(() => { if (notice.value === msg) notice.value = ''; }, 2600);
+    }
+
+    async function openPick(i) {
+      const m = messages.value[i];
+      if (!m || !m.text) return;
+      const prev = messages.value[i - 1];
+      extractingIdx.value = i;
+      try {
+        const res = await fetch('/api/weakpoints/suggest', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: prev ? prev.text : '', reply: m.text })
+        });
+        const d = await res.json();
+        const items = (d.items || []).map(it => ({ ...it, take: true }));
+        if (!items.length) { flash('这段里没找到值得沉淀的内容'); return; }
+        wpSuggest.value = { items, deck: wpDeck.value };
+        renderIcons();
+      } catch (e) { flash('整理失败'); }
+      finally { extractingIdx.value = -1; }
     }
 
     async function stopChat() {
@@ -511,27 +543,18 @@ createApp({
       send('针对这条薄弱点「' + c.point + '」，给我讲清楚并出一道练习题');
     }
 
-    async function maybeSuggest(message, reply) {
-      try {
-        const d = await (await fetch('/api/weakpoints/suggest', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, reply })
-        })).json();
-        const items = (d.items || []).map(it => ({ ...it, take: true }));
-        if (items.length) wpSuggest.value = { items, deck: wpDeck.value };
-      } catch (e) {}
-    }
-
     async function wpSaveSuggest() {
       const items = wpSuggest.value.items.filter(it => it.take);
-      if (items.length) {
-        await fetch('/api/weakpoints/add_many', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items, deck: wpSuggest.value.deck })
-        });
-      }
+      if (!items.length) { flash('至少勾一条'); return; }
+      const res = await fetch('/api/weakpoints/add_many', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, deck: wpSuggest.value.deck })
+      });
+      const d = await res.json();
       wpSuggest.value = { items: [], deck: '' };
+      cardsOpen.value = true;
       loadWeakpoints();
+      flash('已存 ' + (d.added || 0) + ' 张卡片' + (d.merged ? ('，另有 ' + d.merged + ' 张与已有重复、已合并') : ''));
     }
 
     function retrySend() {
@@ -660,7 +683,7 @@ createApp({
     });
 
   return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession, me, loadMe, logout,
-    jobId, stopChat, cardsOpen, toggleCards, wpDecks, wpCards, wpStats, wpDeck, wpDraft, wpSuggest,
+    jobId, stopChat, cardsOpen, toggleCards, wpDecks, wpCards, wpStats, wpDeck, wpDraft, wpSuggest, extractingIdx, notice, flash, openPick,
     loadWeakpoints, wpAddManual, wpDeckCreate, wpDeckDelete, wpToggle, wpDelete, wpMove, wpPractice, wpSaveSuggest };
   }
 }).mount('#app');
