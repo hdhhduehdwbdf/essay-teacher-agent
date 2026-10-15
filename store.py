@@ -149,6 +149,10 @@ def _migrate_uid():
             _exec(f"DELETE FROM {t} WHERE uid IS NULL")
         except Exception:
             pass
+    try:
+        _exec("ALTER TABLE weak_cards ADD COLUMN hits INTEGER DEFAULT 1")
+    except Exception:
+        pass
 
 
 def uid_of(username):
@@ -447,6 +451,10 @@ def card_update(user, card_id, point=None, ctype=None, evidence=None, deck=None)
 def card_toggle(user, card_id, mastered):
     _exec("UPDATE weak_cards SET mastered=? WHERE uid=? AND id=?", (1 if mastered else 0, _uid(user), card_id))
     return card_get(user, card_id)
+
+
+def card_hit(user, card_id):
+    _exec("UPDATE weak_cards SET hits=COALESCE(hits,1)+1, mastered=0 WHERE uid=? AND id=?", (_uid(user), card_id))
 
 
 def card_delete(user, card_id):

@@ -1,27 +1,39 @@
 # -*- coding: utf-8 -*-
-"""薄弱点卡片：AI 每轮抽取候选（只抽不存，前端确认后入库），全部按用户隔离。"""
+"""薄弱点卡片：AI 抽取候选（只抽不存）→ 用户确认 → 入库，全部按用户隔离。"""
 import json
 import re
-from difflib import SequenceMatcher
 
 import store
 
 
 MAX_PER_TURN = 6
-_IMP_WEIGHT = {"高": 2, "中": 1, "低": 0}
+_IMP_WEIGHT = {"高": 3, "中": 2, "低": 1}
 
-_EXTRACT_PROMPT = """从下面的师生对话里，提取学生暴露出的薄弱点，供他之后复习。
-只输出 JSON 数组，每项形如 {"point": "薄弱点一句话", "type": "知识点|技巧|易错点|素材", "evidence": "对话中的依据（30字内）", "imp": "高|中|低"}。
-没有就输出 []。最多 6 条，按重要性从高到低。
-学生输入：__USER__
-老师回答：__REPLY__"""
+_EXTRACT_PROMPT = """你是写作教学的知识点抽取器。从下面这段师生对话里，抽出学生值得复习的内容。
+
+只输出一个 JSON 数组，不要任何解释、不要代码块标记。每个元素格式：
+{"type":"知识点|易错点|技巧","point":"一句话结论，不超过30字，要具体可记","evidence":"原对话里对应的短句，不超过40字","imp":"高|中|低"}
+
+规则：
+- 数量按内容决定：回答里有多少条真正值得记的，就抽多少条，最多 6 条；只有 1 条就只给 1 条。宁缺勿滥，不要为了凑数硬造。
+- 按重要程度从高到低排列：imp="高" 的放最前面，其次 "中"，最后 "低"。
+  "高"=易错/常扣分/关键结论；"中"=值得注意的技巧或提醒；"低"=一般性的好建议。
+- point 必须是一条可以复习的结论，不要写"学生问了一个问题"这种废话
+- evidence 必须能在原对话里找到出处
+
+【学生问】
+__USER__
+
+【老师答】
+__REPLY__
+"""
 
 
 def _payload(card):
     return {"id": card["id"], "deck": card["deck"] or "", "point": card["point"],
             "type": card["type"], "evidence": card["evidence"] or "",
             "session_ref": card["session_ref"] or "", "created": card["created"],
-            "mastered": bool(card["mastered"])}
+            "mastered": bool(card["mastered"]), "hits": card.get("hits") or 1}
 
 
 def list_all(user, deck=None):
@@ -70,12 +82,22 @@ def _norm(s):
 
 
 def _similar(a, b):
+    """判重：长度量级接近且重合度很高才算同一条，防止短串被长卡吞并。"""
     a, b = _norm(a), _norm(b)
     if not a or not b:
         return False
-    if a == b or a in b or b in a:
+    if a == b:
         return True
-    return SequenceMatcher(None, a, b).ratio() >= 0.62
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    if len(short) / max(1, len(long_)) < 0.6:
+        return False
+    if short in long_ and len(short) / len(long_) >= 0.85:
+        return True
+    if len(short) < 6:
+        return False
+    ga = {a[i:i + 2] for i in range(len(a) - 1)}
+    gb = {b[i:i + 2] for i in range(len(b) - 1)}
+    return len(ga & gb) / max(1, min(len(ga), len(gb))) > 0.85
 
 
 def add(user, point, ctype="知识点", evidence="", deck="", session_ref="", source="manual"):
@@ -92,9 +114,10 @@ def add(user, point, ctype="知识点", evidence="", deck="", session_ref="", so
             break
     if dup:
         merged_ev = (dup["evidence"] or "")
-        if evidence and evidence not in merged_ev:
-            merged_ev = (merged_ev + "；" + evidence[:200])[:300]
+        if evidence and not merged_ev:
+            merged_ev = evidence[:200]
         card = store.card_update(user, dup["id"], evidence=merged_ev)
+        store.card_hit(user, dup["id"])
         return 200, {"ok": True, "card": _payload(card), "merged": True}
     card = store.card_add(user, point, ctype, evidence[:200], deck, session_ref)
     return 200, {"ok": True, "card": _payload(card), "merged": False}
@@ -111,7 +134,9 @@ def add_many(user, items, deck="", session_ref=""):
                 merged += 1
             else:
                 added.append(r["card"])
-    return 200, {"ok": True, "cards": added, "added": len(added), "merged": merged}
+    info = list_all(user)
+    return 200, {"ok": True, "cards": added, "added": len(added), "merged": merged,
+                 "decks": info["decks"], "stats": info["stats"]}
 
 
 def update(user, card_id, **kw):
@@ -138,6 +163,62 @@ def clear(user, mastered_only=False, deck=None):
     return 200, {"ok": True}
 
 
+def rule_extract(reply):
+    """规则兜底：从带标记词的句子里抠出候选卡片。"""
+    out = []
+    _MARK = re.compile(r"(易错|容易错|常错|注意|记住|切忌|不要|别忘|建议|技巧|口诀|规律|"
+                       r"关键|重点是|诀窍|写法是|套路|扣分点|分点|误区|务必|一定)")
+    for raw in re.split(r"[\n。！？!?；;]", reply or ""):
+        s = raw.strip().replace("**", "").replace("`", "").replace("*", "")
+        s = re.sub(r"^[\s#>•·\-—]+", "", s)
+        s = re.sub(r"^[^：:]{0,8}[：:]\s*", "", s)
+        s = s.strip(" 　·-—。；;.,，")
+        if not (8 <= len(s) <= 60):
+            continue
+        if not _MARK.search(s):
+            continue
+        if re.search(r"(易错|容易错|常错|切忌|不要|别忘|扣分点)", s):
+            ctype, imp = "易错点", "高"
+        elif re.search(r"(技巧|诀窍|套路|写法是)", s):
+            ctype, imp = "技巧", "中"
+        else:
+            ctype, imp = "知识点", ("高" if re.search(r"(关键|重点是|务必|一定|必须)", s) else "中")
+        out.append({"point": s[:120], "type": ctype, "evidence": s[:60], "imp": imp})
+        if len(out) >= 6:
+            break
+    out.sort(key=lambda x: _IMP_WEIGHT.get(x.get("imp"), 1), reverse=True)
+    return out[:MAX_PER_TURN]
+
+
+def _parse_json_array(text):
+    """从模型输出里抠出 JSON 数组，容忍 ```json 包裹和前后废话。"""
+    if not text:
+        return []
+    t = text.strip()
+    t = re.sub(r"^```(?:json)?|```$", "", t, flags=re.M).strip()
+    start, end = t.find("["), t.rfind("]")
+    if start >= 0 and end > start:
+        t = t[start:end + 1]
+    try:
+        data = json.loads(t)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    out = []
+    for it in data:
+        if isinstance(it, dict) and it.get("point"):
+            out.append({
+                "type": str(it.get("type") or "知识点"),
+                "point": str(it.get("point")),
+                "evidence": str(it.get("evidence") or ""),
+                "imp": str(it.get("imp") or ""),
+            })
+        elif isinstance(it, str) and len(it) >= 3:
+            out.append({"type": "知识点", "point": it, "evidence": "", "imp": ""})
+    return out
+
+
 def suggest(user, message, reply):
     """只抽不存：候选交给前端弹窗，用户选分区确认后再批量入库。"""
     try:
@@ -148,26 +229,9 @@ def suggest(user, message, reply):
         resp = llm.chat([{"role": "system", "content": "你是严谨的知识点抽取器，只输出 JSON 数组。"},
                          {"role": "user", "content": prompt}], use_tools=False, max_tokens=600)
         raw = (resp.get("content") or "").strip() if isinstance(resp, dict) else str(resp)
-        items = json.loads(re.search(r"\[.*\]", raw, re.S).group(0))
-        if not isinstance(items, list):
-            raise ValueError
+        items = _parse_json_array(raw)
     except Exception:
         items = rule_extract(reply)
     items = [i for i in items if (i.get("point") or "").strip()]
     items.sort(key=lambda x: _IMP_WEIGHT.get(x.get("imp"), 1), reverse=True)
     return 200, {"items": items[:MAX_PER_TURN]}
-
-
-def rule_extract(reply):
-    out = []
-    marks = [("易错", "高"), ("关键", "高"), ("注意", "中"), ("技巧", "中"), ("记住", "中"), ("误区", "高")]
-    for raw in re.split(r"[\n。！？!?；;]", reply or ""):
-        s = raw.strip().strip("-*0123456789.、）) ")
-        if not (6 <= len(s) <= 80):
-            continue
-        for word, imp in marks:
-            if word in s:
-                out.append({"point": s[:120], "type": "易错点" if word in ("易错", "注意") else "技巧",
-                            "evidence": "", "imp": imp})
-                break
-    return out[:MAX_PER_TURN]

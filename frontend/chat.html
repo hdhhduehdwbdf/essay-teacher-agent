@@ -253,6 +253,7 @@ textarea:focus { outline:none; }
     <div v-for="c in wpCards" :key="c.id" class="rounded-lg border p-2.5" :class="c.mastered ? 'border-[var(--line)] opacity-60' : 'border-[var(--line)]'">
       <div class="flex items-center gap-1.5">
         <span class="rounded px-1.5 py-0.5 text-[10px] bg-[var(--card)] border border-[var(--line)] text-[var(--ink-soft)]">{{ c.type }}</span>
+        <span v-if="c.hits > 1" class="text-[10px] text-[var(--ink-faint)]">×{{ c.hits }}</span>
         <span v-if="c.mastered" class="text-[10px] text-emerald-600">已掌握</span>
         <button @click="wpPractice(c)" title="让老师讲这条并出练习题" class="ml-auto text-[10px] text-[var(--ink-soft)] hover:text-[var(--ink)] underline underline-offset-2">练一练</button>
         <button @click="wpToggle(c)" :title="c.mastered ? '标回待复习' : '我掌握了'" class="text-[10px] text-[var(--ink-soft)] hover:text-emerald-600">{{ c.mastered ? '↺' : '✓' }}</button>
@@ -268,21 +269,46 @@ textarea:focus { outline:none; }
   </div>
 </aside>
 
-<div v-if="wpSuggest.items.length" class="fixed bottom-24 right-6 z-50 w-80 max-w-[92vw] rounded-xl border border-[var(--line)] bg-[var(--card)] shadow-xl p-3">
-  <p class="text-xs font-semibold text-[var(--ink)] mb-1.5">发现可能的薄弱点，存成卡片？</p>
-  <div class="max-h-56 overflow-y-auto space-y-1.5">
-    <label v-for="(it, idx) in wpSuggest.items" :key="idx" class="flex items-start gap-2 text-[12px] leading-5 text-[var(--ink-soft)] cursor-pointer">
-      <input type="checkbox" v-model="it.take" class="mt-1">
-      <span><span class="rounded px-1 text-[10px] border border-[var(--line)] mr-1">{{ it.type }}</span>{{ it.point }}</span>
-    </label>
-  </div>
-  <div class="mt-2 flex items-center gap-2">
-    <select v-model="wpSuggest.deck" class="flex-1 rounded border border-[var(--line)] bg-[var(--bg)] px-1.5 py-1 text-xs">
-      <option value="">未分区</option>
-      <option v-for="d in wpDecks" :key="d.id" :value="d.id">{{ d.name }}</option>
-    </select>
-    <button @click="wpSaveSuggest" class="rounded-full bg-[var(--ink)] px-3 py-1 text-xs text-[var(--card)] hover:bg-black">存入卡片</button>
-    <button @click="wpSuggest.items = []" class="text-xs text-[var(--ink-faint)] hover:text-[var(--ink)]">忽略</button>
+<div v-if="wpSuggest.items.length" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/25" @click="wpSuggest.items = []"></div>
+  <div class="relative z-10 flex max-h-[84vh] w-full max-w-xl flex-col rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-[0_16px_48px_rgba(20,24,30,.18)]">
+    <div class="flex shrink-0 items-start gap-2 border-b border-[var(--line)] px-4 py-3">
+      <div>
+        <p class="text-[13px] font-medium text-[var(--ink)]">存成卡片</p>
+        <p class="mt-0.5 text-[11px] text-[var(--ink-faint)]">挑出要留下的内容（共 {{ wpSuggest.items.length }} 条，已按重要程度排好），改好文字和类型，再选个分区。</p>
+      </div>
+      <button @click="wpSuggest.items = []" title="不保存，直接关掉" class="ml-auto shrink-0 rounded p-1 text-[var(--ink-faint)] transition hover:text-[var(--ink)]"><i data-lucide="x" class="h-4 w-4"></i></button>
+    </div>
+    <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div v-for="(it, k) in wpSuggest.items" :key="k" class="mb-2.5 rounded-lg border border-[var(--line)] p-2.5">
+        <div class="flex items-center gap-1.5">
+          <input type="checkbox" v-model="it.take" class="h-3.5 w-3.5">
+          <span v-if="it.imp === '高'" class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium" style="background:#FBEAE8;color:#C0453A">重要</span>
+          <span v-else-if="it.imp === '中'" class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium" style="background:#E7F1E9;color:#3F7A52">建议</span>
+          <button v-for="t in ['知识点','易错点','技巧','素材']" :key="t" @click="it.type = t"
+            class="rounded-md border px-2 py-0.5 text-[11px] transition"
+            :class="it.type === t ? 'border-[var(--ink)] bg-[var(--ink)] text-[var(--card)]' : 'border-[var(--line)] text-[var(--ink-soft)] hover:text-[var(--ink)]'">{{ t }}</button>
+        </div>
+        <textarea v-model="it.point" rows="2" placeholder="这条要记的内容"
+          class="mt-1.5 w-full resize-none rounded-md border border-[var(--line)] bg-transparent px-2 py-1.5 text-[12.5px] leading-5 text-[var(--ink)] placeholder:text-[var(--ink-faint)]"></textarea>
+        <input v-model="it.evidence" placeholder="出处 / 原句（可留空）"
+          class="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-[11px] text-[var(--ink-soft)] placeholder:text-[var(--ink-faint)]">
+      </div>
+    </div>
+    <div class="flex shrink-0 flex-wrap items-center gap-2 border-t border-[var(--line)] px-4 py-2.5">
+      <span class="text-[11.5px] text-[var(--ink-faint)]">存入</span>
+      <select v-model="wpSuggest.deck" class="rounded-md border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-[11.5px] text-[var(--ink)]">
+        <option value="">未分区</option>
+        <option v-for="d in wpDecks" :key="d.id" :value="d.id">{{ d.name }}</option>
+      </select>
+      <span class="text-[11px] text-[var(--ink-faint)]">已勾 {{ wpSuggest.items.filter(i => i.take).length }} 条</span>
+      <button @click="wpSuggest.items = []" class="ml-auto rounded-md px-2.5 py-1 text-[11.5px] text-[var(--ink-soft)] hover:text-[var(--ink)]">取消</button>
+      <button @click="wpSaveSuggest" :disabled="savingCard || !wpSuggest.items.some(i => i.take)"
+        class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-medium text-[var(--card)] transition disabled:opacity-25 disabled:cursor-not-allowed">
+        <span v-if="savingCard" class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+        {{ savingCard ? '保存中…' : '保存选中' }}
+      </button>
+    </div>
   </div>
 </div>
 
@@ -325,6 +351,7 @@ createApp({
     const wpDeck = ref('');
     const wpDraft = ref('');
     const wpSuggest = ref({ items: [], deck: '' });
+    const savingCard = ref(false);
     const lastUserText = ref('');
     const extractingIdx = ref(-1);
     const notice = ref('');
@@ -512,6 +539,7 @@ createApp({
           body: JSON.stringify({ message: prev ? prev.text : '', reply: m.text })
         });
         const d = await res.json();
+        if (!d.items) { flash('整理失败'); return; }
         const items = (d.items || []).map(it => ({ ...it, take: true }));
         if (!items.length) { flash('这段里没找到值得沉淀的内容'); return; }
         wpSuggest.value = { items, deck: wpDeck.value };
@@ -585,8 +613,10 @@ createApp({
     }
 
     async function wpSaveSuggest() {
-      const items = wpSuggest.value.items.filter(it => it.take);
+      const items = wpSuggest.value.items.filter(it => it.take && (it.point || '').trim());
       if (!items.length) { flash('至少勾一条'); return; }
+      if (savingCard.value) return;
+      savingCard.value = true;
       const res = await fetch('/api/weakpoints/add_many', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items, deck: wpSuggest.value.deck })
@@ -594,8 +624,11 @@ createApp({
       const d = await res.json();
       wpSuggest.value = { items: [], deck: '' };
       cardsOpen.value = true;
-      loadWeakpoints();
-      flash('已存 ' + (d.added || 0) + ' 张卡片' + (d.merged ? ('，另有 ' + d.merged + ' 张与已有重复、已合并') : ''));
+      if (d.decks) wpDecks.value = d.decks;
+      if (d.stats) wpStats.value = d.stats;
+      if (d.cards) wpCards.value = d.cards.map(c => ({ ...c }));
+      flash('已存 ' + (d.added || 0) + ' 张卡片' + (d.merged ? ('，另有 ' + d.merged + ' 张与已有重复、已累计') : ''));
+      savingCard.value = false;
     }
 
     function retrySend() {
@@ -753,7 +786,7 @@ createApp({
 
     return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession, deleteSessionById, sidebarOpen, toggleSidebar, isNarrow, closeOverlays, me, loadMe, logout,
     jobId, stopChat, cardsOpen, toggleCards, wpDecks, wpCards, wpStats, wpDeck, wpDraft, wpSuggest, extractingIdx, notice, flash, openPick,
-    loadWeakpoints, wpAddManual, wpDeckCreate, wpDeckDelete, wpToggle, wpDelete, wpMove, wpPractice, wpSaveSuggest };
+    loadWeakpoints, wpAddManual, wpDeckCreate, wpDeckDelete, wpToggle, wpDelete, wpMove, wpPractice, wpSaveSuggest, savingCard };
   }
 }).mount('#app');
 </script>
