@@ -214,6 +214,18 @@ def _parse_json_array(text):
                 "evidence": str(it.get("evidence") or ""),
                 "imp": str(it.get("imp") or ""),
             })
+        elif isinstance(it, dict):
+            point = it.get("point") or it.get("薄弱点") or it.get("薄弱点一句话") or it.get("结论") or it.get("内容") or ""
+            if not point:
+                vals = [v for v in it.values() if isinstance(v, str) and len(v) >= 3]
+                point = vals[0] if vals else ""
+            if not point.strip():
+                continue
+            ev = it.get("evidence") or it.get("依据") or it.get("出处") or it.get("说明") or ""
+            tp = it.get("type") or it.get("类型") or "知识点"
+            imp = it.get("imp") or it.get("重要性") or it.get("重要程度") or "中"
+            out.append({"type": str(tp), "point": str(point).strip(),
+                        "evidence": str(ev).strip(), "imp": str(imp)})
         elif isinstance(it, str) and len(it) >= 3:
             out.append({"type": "知识点", "point": it, "evidence": "", "imp": ""})
     return out
