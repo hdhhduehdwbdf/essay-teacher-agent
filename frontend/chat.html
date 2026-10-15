@@ -53,6 +53,9 @@ textarea:focus { outline:none; }
     <div class="flex items-center gap-2">
       <span v-if="messages.length > 2" class="hidden sm:inline text-[11px] text-[var(--ink-faint)]">{{ Math.ceil(messages.length/2) }} 轮对话</span>
       <span class="text-[11px] text-[var(--ink-faint)]">{{ me.user }}</span>
+      <button @click="toggleCards" title="薄弱点卡片" class="inline-flex items-center rounded-full border border-transparent px-2 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)]">
+        <i data-lucide="layers" class="h-3.5 w-3.5"></i>
+      </button>
       <button @click="logout" title="退出登录" class="inline-flex items-center rounded-full border border-transparent px-2 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)]">
         <i data-lucide="log-out" class="h-3.5 w-3.5"></i>
       </button>
@@ -156,6 +159,64 @@ textarea:focus { outline:none; }
   </div>
 </main>
 
+<aside v-show="cardsOpen" class="fixed right-0 top-0 bottom-0 z-30 w-80 max-w-[92vw] bg-[var(--bg)] border-l border-[var(--line)] shadow-xl flex flex-col">
+  <div class="shrink-0 px-4 py-3 border-b border-[var(--line)] flex items-center justify-between">
+    <p class="serif text-sm font-semibold flex items-center gap-1.5"><i data-lucide="layers" class="h-3.5 w-3.5"></i>薄弱点卡片</p>
+    <button @click="toggleCards" class="text-xs text-[var(--ink-faint)] hover:text-[var(--ink)]">收起</button>
+  </div>
+  <div class="shrink-0 px-4 py-2.5 border-b border-[var(--line)] space-y-2">
+    <div class="flex items-center gap-2 text-xs text-[var(--ink-faint)]">
+      <span>共 {{ wpStats.total || 0 }} 张 · 待复习 {{ wpStats.todo || 0 }}</span>
+      <select v-model="wpDeck" @change="loadWeakpoints" class="ml-auto rounded border border-[var(--line)] bg-[var(--card)] px-1.5 py-0.5 text-xs max-w-[8rem]">
+        <option value="">全部分区</option>
+        <option v-for="d in wpDecks" :key="d.id" :value="d.id">{{ d.name }}</option>
+      </select>
+      <button @click="wpDeckCreate" title="新建分区" class="rounded px-1.5 py-0.5 border border-[var(--line)] hover:bg-[var(--card)]">+</button>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <input v-model="wpDraft" @keydown.enter="wpAddManual" placeholder="手动记一张卡片…"
+        class="flex-1 rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-xs">
+      <button @click="wpAddManual" class="rounded bg-[var(--ink)] px-2 py-1 text-xs text-[var(--card)] hover:bg-black">添加</button>
+    </div>
+  </div>
+  <div class="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
+    <p v-if="wpCards.length === 0" class="text-xs text-[var(--ink-faint)]">还没有卡片。聊天里我会帮你把薄弱点抽出来，确认后存到这里。</p>
+    <div v-for="c in wpCards" :key="c.id" class="rounded-lg border p-2.5" :class="c.mastered ? 'border-[var(--line)] opacity-60' : 'border-[var(--line)]'">
+      <div class="flex items-center gap-1.5">
+        <span class="rounded px-1.5 py-0.5 text-[10px] bg-[var(--card)] border border-[var(--line)] text-[var(--ink-soft)]">{{ c.type }}</span>
+        <span v-if="c.mastered" class="text-[10px] text-emerald-600">已掌握</span>
+        <button @click="wpPractice(c)" title="让老师讲这条并出练习题" class="ml-auto text-[10px] text-[var(--ink-soft)] hover:text-[var(--ink)] underline underline-offset-2">练一练</button>
+        <button @click="wpToggle(c)" :title="c.mastered ? '标回待复习' : '我掌握了'" class="text-[10px] text-[var(--ink-soft)] hover:text-emerald-600">{{ c.mastered ? '↺' : '✓' }}</button>
+        <button @click="wpDelete(c)" class="text-[10px] text-[var(--ink-soft)] hover:text-red-500">✕</button>
+      </div>
+      <p class="mt-1.5 text-[13px] leading-6 text-[var(--ink)]">{{ c.point }}</p>
+      <p v-if="c.evidence" class="mt-1 text-[11px] leading-5 text-[var(--ink-faint)]">{{ c.evidence }}</p>
+      <select v-if="wpDecks.length" :value="c.deck" @change="wpMove(c, $event.target.value)" class="mt-1.5 rounded border border-[var(--line)] bg-[var(--card)] px-1 py-0.5 text-[10px] text-[var(--ink-faint)]">
+        <option value="">未分区</option>
+        <option v-for="d in wpDecks" :key="d.id" :value="d.id">{{ d.name }}</option>
+      </select>
+    </div>
+  </div>
+</aside>
+
+<div v-if="wpSuggest.items.length" class="fixed bottom-24 right-6 z-40 w-80 max-w-[92vw] rounded-xl border border-[var(--line)] bg-[var(--card)] shadow-xl p-3">
+  <p class="text-xs font-semibold text-[var(--ink)] mb-1.5">发现可能的薄弱点，存成卡片？</p>
+  <div class="max-h-56 overflow-y-auto space-y-1.5">
+    <label v-for="(it, idx) in wpSuggest.items" :key="idx" class="flex items-start gap-2 text-[12px] leading-5 text-[var(--ink-soft)] cursor-pointer">
+      <input type="checkbox" v-model="it.take" class="mt-1">
+      <span><span class="rounded px-1 text-[10px] border border-[var(--line)] mr-1">{{ it.type }}</span>{{ it.point }}</span>
+    </label>
+  </div>
+  <div class="mt-2 flex items-center gap-2">
+    <select v-model="wpSuggest.deck" class="flex-1 rounded border border-[var(--line)] bg-[var(--bg)] px-1.5 py-1 text-xs">
+      <option value="">未分区</option>
+      <option v-for="d in wpDecks" :key="d.id" :value="d.id">{{ d.name }}</option>
+    </select>
+    <button @click="wpSaveSuggest" class="rounded-full bg-[var(--ink)] px-3 py-1 text-xs text-[var(--card)] hover:bg-black">存入卡片</button>
+    <button @click="wpSuggest.items = []" class="text-xs text-[var(--ink-faint)] hover:text-[var(--ink)]">忽略</button>
+  </div>
+</div>
+
 <footer class="shrink-0 relative">
   <div class="mx-auto w-full max-w-2xl px-6 pb-4">
     <div class="rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-[0_1px_8px_rgba(20,24,30,.04)] focus-within:shadow-[0_3px_14px_rgba(20,24,30,.08)] focus-within:border-[#B0B8C1] transition duration-200">
@@ -167,10 +228,16 @@ textarea:focus { outline:none; }
           <span class="hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>
           <span v-if="draft.length > 80" class="sm:hidden">{{ draft.length }}</span>
         </span>
-        <button @click="send()" :disabled="loading || !draft.trim()"
-          class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-medium text-[var(--card)] transition duration-150 hover:bg-black hover:shadow-[0_2px_8px_rgba(0,0,0,.2)] active:scale-95 disabled:opacity-25 disabled:cursor-not-allowed disabled:shadow-none">
-          发送<i data-lucide="arrow-up" class="h-3.5 w-3.5"></i>
-        </button>
+        <div class="flex items-center gap-2">
+          <button v-if="loading" @click="stopChat" title="中断这一轮，本轮不会记进会话"
+            class="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:bg-[var(--card)] hover:text-[var(--ink)]">
+            <i data-lucide="square" class="h-3 w-3"></i>停止
+          </button>
+          <button @click="send()" :disabled="loading || !draft.trim()"
+            class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-medium text-[var(--card)] transition duration-150 hover:bg-black hover:shadow-[0_2px_8px_rgba(0,0,0,.2)] active:scale-95 disabled:opacity-25 disabled:cursor-not-allowed disabled:shadow-none">
+            发送<i data-lucide="arrow-up" class="h-3.5 w-3.5"></i>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -203,6 +270,15 @@ createApp({
     const copiedIdx = ref(-1);
     const showScrollBtn = ref(false);
     const lastSent = ref('');
+    const jobId = ref(null);
+    const cardsOpen = ref(false);
+    const wpDecks = ref([]);
+    const wpCards = ref([]);
+    const wpStats = ref({});
+    const wpDeck = ref('');
+    const wpDraft = ref('');
+    const wpSuggest = ref({ items: [], deck: '' });
+    const lastUserText = ref('');
     const loadingHints = [
       '正在读你的文章……',
       '让我想想怎么说……',
@@ -291,6 +367,7 @@ createApp({
       draft.value = '';
       autoGrow();
       lastSent.value = text;
+      lastUserText.value = text;
       messages.value.push({ role: 'user', text, steps: [] });
       loading.value = true;
       error.value = null;
@@ -305,7 +382,10 @@ createApp({
             body: JSON.stringify({ message: text })
           });
           const data = await res.json();
-          if (res.ok && !data.error) {
+          if (res.ok && data.stopped) {
+            messages.value.pop();
+            error.value = '已停止，这一轮没有记进会话';
+          } else if (res.ok && !data.error) {
             messages.value.push({ role: 'assistant', text: data.reply || '', steps: Array.isArray(data.steps) ? data.steps : [] });
           } else {
             error.value = data.error || ('HTTP ' + res.status);
@@ -352,13 +432,106 @@ createApp({
           } else if (ev.type === 'delta') {
             m.text += ev.text || '';
             scrollBottom();
+          } else if (ev.type === 'start') {
+            jobId.value = ev.job_id || null;
+          } else if (ev.type === 'stopped') {
+            const idx = messages.value.indexOf(m);
+            if (idx >= 0) messages.value.splice(idx, 1);
+            error.value = '已停止，这一轮没有记进会话';
           } else if (ev.type === 'error') {
             error.value = ev.error || '流式响应出错';
           }
         }
       }
       renderIcons(); scrollBottom();
+      if (m.text) maybeSuggest(lastUserText.value, m.text);
       return true;
+    }
+
+    async function stopChat() {
+      if (!jobId.value) return;
+      try { await fetch('/api/chat/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: jobId.value }) }); } catch (e) {}
+    }
+
+    function toggleCards() {
+      cardsOpen.value = !cardsOpen.value;
+      if (cardsOpen.value) loadWeakpoints();
+      renderIcons();
+    }
+
+    async function loadWeakpoints() {
+      try {
+        const q = wpDeck.value ? ('?deck=' + encodeURIComponent(wpDeck.value)) : '';
+        const d = await (await fetch('/api/weakpoints' + q)).json();
+        wpDecks.value = d.decks || [];
+        wpCards.value = d.cards || [];
+        wpStats.value = d.stats || {};
+      } catch (e) {}
+    }
+
+    async function wpAddManual() {
+      const point = wpDraft.value.trim();
+      if (!point) return;
+      await fetch('/api/weakpoints/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ point, deck: wpDeck.value }) });
+      wpDraft.value = '';
+      loadWeakpoints();
+    }
+
+    async function wpDeckCreate() {
+      const name = prompt('新分区名称：');
+      if (!name) return;
+      await fetch('/api/weakpoints/decks/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      loadWeakpoints();
+    }
+
+    async function wpDeckDelete() {
+      if (!wpDeck.value) return;
+      if (!confirm('删除当前分区及其全部卡片？')) return;
+      await fetch('/api/weakpoints/decks/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: wpDeck.value }) });
+      wpDeck.value = '';
+      loadWeakpoints();
+    }
+
+    async function wpToggle(c) {
+      await fetch('/api/weakpoints/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id, mastered: !c.mastered }) });
+      loadWeakpoints();
+    }
+
+    async function wpDelete(c) {
+      await fetch('/api/weakpoints/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id }) });
+      loadWeakpoints();
+    }
+
+    async function wpMove(c, deck) {
+      await fetch('/api/weakpoints/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id, deck }) });
+      loadWeakpoints();
+    }
+
+    function wpPractice(c) {
+      send('针对这条薄弱点「' + c.point + '」，给我讲清楚并出一道练习题');
+    }
+
+    async function maybeSuggest(message, reply) {
+      try {
+        const d = await (await fetch('/api/weakpoints/suggest', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, reply })
+        })).json();
+        const items = (d.items || []).map(it => ({ ...it, take: true }));
+        if (items.length) wpSuggest.value = { items, deck: wpDeck.value };
+      } catch (e) {}
+    }
+
+    async function wpSaveSuggest() {
+      const items = wpSuggest.value.items.filter(it => it.take);
+      if (items.length) {
+        await fetch('/api/weakpoints/add_many', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items, deck: wpSuggest.value.deck })
+        });
+      }
+      wpSuggest.value = { items: [], deck: '' };
+      loadWeakpoints();
     }
 
     function retrySend() {
@@ -486,7 +659,9 @@ createApp({
       inp.value && inp.value.focus();
     });
 
-  return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession, me, loadMe, logout };
+  return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession, me, loadMe, logout,
+    jobId, stopChat, cardsOpen, toggleCards, wpDecks, wpCards, wpStats, wpDeck, wpDraft, wpSuggest,
+    loadWeakpoints, wpAddManual, wpDeckCreate, wpDeckDelete, wpToggle, wpDelete, wpMove, wpPractice, wpSaveSuggest };
   }
 }).mount('#app');
 </script>

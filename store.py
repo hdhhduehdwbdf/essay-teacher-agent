@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS job_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, job_id INTEGER, payload TEXT);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id);
 CREATE INDEX IF NOT EXISTS idx_events_job ON job_events(job_id, id);
+CREATE TABLE IF NOT EXISTS weak_decks (
+  id TEXT PRIMARY KEY, user TEXT, name TEXT, created TEXT);
+CREATE TABLE IF NOT EXISTS weak_cards (
+  id TEXT PRIMARY KEY, user TEXT, deck TEXT, point TEXT, type TEXT,
+  evidence TEXT, session_ref TEXT, created TEXT, mastered INTEGER DEFAULT 0);
+CREATE INDEX IF NOT EXISTS idx_weak_cards_user ON weak_cards(user, deck);
 """
 
 SCHEMA_PG = SCHEMA_SQLITE.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY")
@@ -307,6 +313,93 @@ def job_event_add(job_id, payload):
     _exec("INSERT INTO job_events(job_id,payload) VALUES(?,?)",
           (job_id, json.dumps(payload, ensure_ascii=False)))
 
+
+def job_cancel(job_id):
+    """请求取消：排队中置 cancelled（worker 不再领取），运行中由 worker 轮询后中止。"""
+    _exec("UPDATE jobs SET status='cancelled' WHERE id=? AND status IN ('queued','running')", (job_id,))
+
+
+# ---------- 薄弱点卡片（按用户隔离） ----------
+
+def decks_list(user):
+    return _rows("SELECT id, name, created FROM weak_decks WHERE user=? ORDER BY created", (user,))
+
+
+def deck_get(user, deck_id):
+    rows = _rows("SELECT id, name FROM weak_decks WHERE user=? AND id=?", (user, deck_id))
+    return rows[0] if rows else None
+
+
+def deck_create(user, name):
+    deck_id = "d" + secrets_hex8() + time.strftime("%H%M%S")
+    _exec("INSERT INTO weak_decks(id,user,name,created) VALUES(?,?,?,?)",
+          (deck_id, user, name, time.strftime("%Y-%m-%d %H:%M:%S")))
+    return deck_get(user, deck_id)
+
+
+def deck_rename(user, deck_id, name):
+    _exec("UPDATE weak_decks SET name=? WHERE user=? AND id=?", (name, user, deck_id))
+
+
+def deck_delete(user, deck_id):
+    _exec("DELETE FROM weak_cards WHERE user=? AND deck=?", (user, deck_id))
+    _exec("DELETE FROM weak_decks WHERE user=? AND id=?", (user, deck_id))
+
+
+def cards_list(user, deck=None):
+    if deck:
+        return _rows("SELECT * FROM weak_cards WHERE user=? AND deck=? ORDER BY created DESC", (user, deck))
+    return _rows("SELECT * FROM weak_cards WHERE user=? ORDER BY created DESC", (user,))
+
+
+def card_get(user, card_id):
+    rows = _rows("SELECT * FROM weak_cards WHERE user=? AND id=?", (user, card_id))
+    return rows[0] if rows else None
+
+
+def card_add(user, point, ctype, evidence="", deck="", session_ref=""):
+    card_id = "c" + secrets_hex8() + time.strftime("%H%M%S")
+    _exec("INSERT INTO weak_cards(id,user,deck,point,type,evidence,session_ref,created,mastered) VALUES(?,?,?,?,?,?,?,?,0)",
+          (card_id, user, deck or "", point, ctype, evidence, session_ref,
+           time.strftime("%Y-%m-%d %H:%M:%S")))
+    return card_get(user, card_id)
+
+
+def card_update(user, card_id, point=None, ctype=None, evidence=None, deck=None):
+    row = card_get(user, card_id)
+    if not row:
+        return None
+    _exec("UPDATE weak_cards SET point=?, type=?, evidence=?, deck=? WHERE user=? AND id=?",
+          (point if point is not None else row["point"],
+           ctype if ctype is not None else row["type"],
+           evidence if evidence is not None else row["evidence"],
+           deck if deck is not None else row["deck"], user, card_id))
+    return card_get(user, card_id)
+
+
+def card_toggle(user, card_id, mastered):
+    _exec("UPDATE weak_cards SET mastered=? WHERE user=? AND id=?", (1 if mastered else 0, user, card_id))
+    return card_get(user, card_id)
+
+
+def card_delete(user, card_id):
+    _exec("DELETE FROM weak_cards WHERE user=? AND id=?", (user, card_id))
+
+
+def cards_clear(user, mastered_only=False, deck=None):
+    sql = "DELETE FROM weak_cards WHERE user=?"
+    args = [user]
+    if mastered_only:
+        sql += " AND mastered=1"
+    if deck:
+        sql += " AND deck=?"
+        args.append(deck)
+    _exec(sql, tuple(args))
+
+
+def secrets_hex8():
+    import secrets as _s
+    return _s.token_hex(4)
 
 def job_events(job_id, after_id=0):
     return _rows("SELECT id, payload FROM job_events WHERE job_id=? AND id>? ORDER BY id", (job_id, after_id))

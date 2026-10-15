@@ -46,6 +46,7 @@ GET_ROUTES = {
     "/api/history": lambda qs, user: (200, api.history(user), None),
     "/api/memory": lambda qs, user: (403, {"error": "仅管理员可查看长期记忆"}, None) if auth.role(user) != "admin" else (200, api.memory_list(), None),
     "/api/admin/users": lambda qs, user: (200, api.admin_users_payload(), None),
+    "/api/weakpoints": lambda qs, user: api.weakpoints_list(qs, user),
     "/api/files": lambda qs, user: (*api.file_read(unquote(qs.get("path", [""])[0])), None),
 }
 
@@ -191,6 +192,17 @@ POST_ROUTES = {
     "/api/admin/users/delete": lambda req, user: api.admin_user_delete(req),
     "/api/admin/users/approve": lambda req, user: api.admin_user_approve(req),
     "/api/admin/users/reject": lambda req, user: api.admin_user_reject(req),
+    "/api/chat/stop": lambda req, user: api.chat_stop(req, user),
+    "/api/weakpoints/suggest": lambda req, user: api.weakpoints_suggest(req, user),
+    "/api/weakpoints/add": lambda req, user: api.weakpoints_add(req, user),
+    "/api/weakpoints/add_many": lambda req, user: api.weakpoints_add_many(req, user),
+    "/api/weakpoints/update": lambda req, user: api.weakpoints_update(req, user),
+    "/api/weakpoints/toggle": lambda req, user: api.weakpoints_toggle(req, user),
+    "/api/weakpoints/delete": lambda req, user: api.weakpoints_delete(req, user),
+    "/api/weakpoints/clear": lambda req, user: api.weakpoints_clear(req, user),
+    "/api/weakpoints/decks/create": lambda req, user: api.weakpoints_deck_create(req, user),
+    "/api/weakpoints/decks/rename": lambda req, user: api.weakpoints_deck_rename(req, user),
+    "/api/weakpoints/decks/delete": lambda req, user: api.weakpoints_deck_delete(req, user),
 }
 
 ADMIN_ONLY_POST = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",

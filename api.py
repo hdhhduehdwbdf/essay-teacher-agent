@@ -331,6 +331,8 @@ def chat(req, user):
     job = store.job_get(job_id)
     if not job or job["status"] not in ("done", "failed"):
         return 504, {"error": "回答超时，请重试"}
+    if job["status"] == "cancelled":
+        return 200, {"stopped": True}
     if job["status"] != "done":
         return 500, {"error": job.get("error") or "执行失败"}
     auth.usage_count(user)
@@ -342,6 +344,7 @@ def chat_stream(req, user, emit):
     q = (req.get("message") or "").strip()
     sid = _current_sid(user)
     job_id = store.job_create(user, sid, q)
+    emit({"type": "start", "job_id": job_id})
     cursor = 0
     timeout = float(os.environ.get("CHAT_TIMEOUT", "180"))
     deadline = time.time() + timeout
@@ -365,8 +368,24 @@ def chat_stream(req, user, emit):
         auth.usage_count(user)
         emit({"type": "done", "reply": job["reply"]})
         return job["reply"]
+    if job["status"] == "cancelled":
+        emit({"type": "stopped"})
+        return ""
     emit({"type": "error", "error": job.get("error") or "执行失败"})
     return ""
+
+
+def chat_stop(req, user):
+    job_id = int(req.get("job_id") or 0)
+    if not job_id:
+        return 400, {"error": "missing job_id"}
+    job = store.job_get(job_id)
+    if not job or job["user"] != user:
+        return 404, {"error": "任务不存在"}
+    if job["status"] in ("done", "failed", "cancelled"):
+        return 200, {"ok": True, "stopped": False}
+    store.job_cancel(job_id)
+    return 200, {"ok": True, "stopped": True}
 
 
 # ---------- 队列执行（worker 调用） ----------
@@ -379,6 +398,9 @@ def run_job(job):
     from llm import chat_with_tool_loop_stream
     user, sid, q = job["user"], job["sid"], job["message"]
     job_id = job["id"]
+
+    class _Stopped(Exception):
+        pass
 
     def emit(ev):
         store.job_event_add(job_id, ev)
@@ -401,6 +423,8 @@ def run_job(job):
         messages = agent.build_messages(history, q, verbose=False, hits=hits, user=user)
 
         def on_delta(text):
+            if store.job_get(job_id)["status"] == "cancelled":
+                raise _Stopped()
             emit({"type": "delta", "text": text})
 
         reply = chat_with_tool_loop_stream(messages, steps, on_delta)
@@ -412,6 +436,10 @@ def run_job(job):
         threading.Thread(target=memory.maybe_extract, args=(user, sid), daemon=True).start()
         store.job_finish(job_id, "done", reply, steps=steps)
         return reply
+    except _Stopped:
+        emit({"type": "stopped"})
+        store.job_finish(job_id, "cancelled", "")
+        return ""
     except Exception as e:
         store.job_finish(job_id, "failed", error=f"{type(e).__name__}: {e}")
         _alert(f"任务 {job_id} 执行失败：{type(e).__name__}: {e}")
@@ -462,6 +490,61 @@ def memory_list_payload(user=None, is_admin=True):
 
 
 # ---------- 鉴权与用户管理 ----------
+
+# ---------- 薄弱点卡片 ----------
+
+def weakpoints_list(qs, user):
+    import weakpoints
+    deck = (qs.get("deck") or [""])[0] if isinstance(qs.get("deck"), list) else (qs or {}).get("deck")
+    return 200, weakpoints.list_all(user, deck or None), None
+
+
+def _w():
+    import weakpoints
+    return weakpoints
+
+
+def weakpoints_suggest(req, user):
+    return _w().suggest(user, req.get("message", ""), req.get("reply", ""))
+
+
+def weakpoints_add(req, user):
+    return _w().add(user, req.get("point", ""), req.get("type", "知识点"),
+                    req.get("evidence", ""), req.get("deck", ""), req.get("session_ref", ""))
+
+
+def weakpoints_add_many(req, user):
+    return _w().add_many(user, req.get("items") or [], req.get("deck", ""), req.get("session_ref", ""))
+
+
+def weakpoints_update(req, user):
+    return _w().update(user, req.get("id", ""), point=req.get("point"),
+                       ctype=req.get("type"), evidence=req.get("evidence"), deck=req.get("deck"))
+
+
+def weakpoints_toggle(req, user):
+    return _w().toggle(user, req.get("id", ""), bool(req.get("mastered")))
+
+
+def weakpoints_delete(req, user):
+    return _w().delete(user, req.get("id", ""))
+
+
+def weakpoints_clear(req, user):
+    return _w().clear(user, bool(req.get("mastered_only")), req.get("deck") or None)
+
+
+def weakpoints_deck_create(req, user):
+    return _w().deck_create(user, req.get("name", ""))
+
+
+def weakpoints_deck_rename(req, user):
+    return _w().deck_rename(user, req.get("id", ""), req.get("name", ""))
+
+
+def weakpoints_deck_delete(req, user):
+    return _w().deck_delete(user, req.get("id", ""))
+
 
 def auth_login(req):
     username = str(req.get("username") or "").strip()

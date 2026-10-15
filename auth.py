@@ -122,17 +122,8 @@ def reject_user(username):
     """拒绝申请：直接删除账号记录。"""
     if username not in store.users_all():
         return 404, {"error": "申请不存在"}
-    _purge_user_data(username)
+    store.user_delete(username)
     return 200, {"ok": True}
-
-
-def _purge_user_data(username):
-    """注销账号：连同会话、长期记忆、用量一并清理，避免同名重建后继承旧数据。"""
-    with _LOCK:
-        store.user_delete(username)
-        store.sessions_purge(username)
-        store.memory_clear(username)
-        store.usage_purge(username)
 
 
 def pending_users():
@@ -164,7 +155,7 @@ def delete_user(username):
     with _LOCK:
         if username not in store.users_all():
             return 404, {"error": "用户不存在"}
-    _purge_user_data(username)
+        store.user_delete(username)
     return 200, {"ok": True}
 
 
