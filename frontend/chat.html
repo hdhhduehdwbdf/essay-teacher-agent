@@ -42,7 +42,46 @@ textarea:focus { outline:none; }
 </style>
 </head>
 <body class="h-full overflow-hidden text-[var(--ink)] antialiased">
-<div id="app" class="h-full flex flex-col">
+<div id="app" class="h-full flex overflow-hidden">
+<div v-if="isNarrow && (sidebarOpen || cardsOpen)" @click="closeOverlays" class="fixed inset-0 z-30 bg-black/25"></div>
+
+<aside v-show="sidebarOpen" class="flex flex-col bg-[var(--bg)]"
+  :class="isNarrow ? 'fixed inset-y-0 left-0 z-40 w-64 max-w-[85vw] shadow-xl' : 'shrink-0 w-60 border-r border-[var(--line)]'">
+  <div class="shrink-0 px-3 py-3 border-b border-[var(--line)] flex items-center justify-between">
+    <p class="serif text-sm font-semibold flex items-center gap-1.5"><i data-lucide="history" class="h-3.5 w-3.5"></i>会话记录</p>
+    <button @click="toggleSidebar" title="收起" class="rounded p-1 text-[var(--ink-faint)] hover:text-[var(--ink)] hover:bg-[var(--card)]"><i data-lucide="panel-left-close" class="h-3.5 w-3.5"></i></button>
+  </div>
+  <div class="px-3 py-2.5">
+    <button @click="newSession" class="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:bg-[var(--card)] hover:text-[var(--ink)]">
+      <i data-lucide="plus" class="h-3.5 w-3.5"></i>新对话
+    </button>
+  </div>
+  <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
+    <button v-for="s in sessions" :key="s.id" @click="switchSession(s.id)" class="group w-full text-left rounded-lg px-3 py-2 transition"
+      :class="currentId === s.id ? 'bg-[var(--card)] border border-[var(--line)]' : 'border border-transparent hover:bg-[var(--card)]'">
+      <span class="flex items-center gap-2">
+        <i :data-lucide="currentId === s.id ? 'message-square' : 'message-circle'" class="h-3 w-3 shrink-0 text-[var(--ink-faint)]"></i>
+        <span class="text-xs truncate flex-1" :class="currentId === s.id ? 'text-[var(--ink)] font-medium' : 'text-[var(--ink-soft)]'">{{ s.label }}</span>
+      </span>
+      <span class="flex items-center gap-2 mt-0.5 pl-5">
+        <span class="text-[10px] text-[var(--ink-faint)]">{{ s.turns || 0 }} 轮</span>
+        <span v-if="s.updated" class="text-[10px] text-[var(--ink-faint)] truncate">{{ s.updated }}</span>
+        <button v-if="s.id !== 'default'" @click.stop="deleteSessionById(s.id)" title="删除这个会话"
+          class="ml-auto opacity-0 group-hover:opacity-100 hover:opacity-100 text-[var(--ink-faint)] hover:text-red-500">
+          <i data-lucide="trash-2" class="h-3 w-3"></i>
+        </button>
+      </span>
+    </button>
+  </div>
+  <div class="shrink-0 px-3 py-2.5 border-t border-[var(--line)] flex items-center justify-between">
+    <span class="text-[11px] text-[var(--ink-faint)]">{{ me.user }}</span>
+    <button @click="logout" title="退出登录" class="rounded-full px-2 py-1 text-xs text-[var(--ink-soft)] hover:bg-[var(--card)] hover:text-[var(--ink)]">
+      <i data-lucide="log-out" class="h-3.5 w-3.5"></i>
+    </button>
+  </div>
+</aside>
+
+<div class="flex-1 min-w-0 flex flex-col">
 
 <header class="shrink-0 sticky top-0 z-20 border-b border-[var(--line)]/60 bg-[var(--bg)]/85 backdrop-blur-sm">
   <div class="mx-auto w-full max-w-2xl px-6 py-3 flex items-center justify-between">
@@ -52,21 +91,14 @@ textarea:focus { outline:none; }
     </div>
     <div class="flex items-center gap-2">
       <span v-if="messages.length > 2" class="hidden sm:inline text-[11px] text-[var(--ink-faint)]">{{ Math.ceil(messages.length/2) }} 轮对话</span>
-      <span class="text-[11px] text-[var(--ink-faint)]">{{ me.user }}</span>
+      <button @click="toggleSidebar" :title="sidebarOpen ? '收起会话栏' : '展开会话栏'" class="inline-flex items-center rounded-full border border-transparent px-2 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)]">
+        <i data-lucide="panel-left" class="h-3.5 w-3.5"></i>
+      </button>
       <button @click="toggleCards" title="薄弱点卡片" class="inline-flex items-center rounded-full border border-transparent px-2 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)]">
         <i data-lucide="layers" class="h-3.5 w-3.5"></i>
       </button>
       <button @click="logout" title="退出登录" class="inline-flex items-center rounded-full border border-transparent px-2 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)]">
         <i data-lucide="log-out" class="h-3.5 w-3.5"></i>
-      </button>
-      <select v-model="currentId" @change="switchSession" class="rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-xs text-[var(--ink-soft)] max-w-[9rem]">
-        <option v-for="s in sessions" :key="s.id" :value="s.id">{{ s.label }}</option>
-      </select>
-      <button v-if="currentId !== 'default'" @click="deleteSession" title="删除当前会话" class="inline-flex items-center rounded-full border border-transparent px-2 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-red-400">
-        <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
-      </button>
-      <button @click="newSession" class="inline-flex items-center gap-1.5 rounded-full border border-transparent px-3 py-1.5 text-xs text-[var(--ink-soft)] transition duration-150 hover:border-[var(--line)] hover:bg-[var(--card)] hover:text-[var(--ink)] hover:shadow-sm">
-        <i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>新对话
       </button>
     </div>
   </div>
@@ -166,10 +198,40 @@ textarea:focus { outline:none; }
   </div>
 </main>
 
-<aside v-show="cardsOpen" class="fixed right-0 top-0 bottom-0 z-30 w-80 max-w-[92vw] bg-[var(--bg)] border-l border-[var(--line)] shadow-xl flex flex-col">
+
+<footer class="shrink-0 relative">
+  <div class="mx-auto w-full max-w-2xl px-6 pb-4">
+    <div class="rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-[0_1px_8px_rgba(20,24,30,.04)] focus-within:shadow-[0_3px_14px_rgba(20,24,30,.08)] focus-within:border-[#B0B8C1] transition duration-200">
+      <textarea ref="inp" v-model="draft" rows="1" @keydown="onKeydown" @input="autoGrow"
+        placeholder="写下你想说的话……"
+        class="max-h-40 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm leading-7 text-[var(--ink)] placeholder:text-[var(--ink-faint)]"></textarea>
+      <div class="flex items-center justify-between px-4 pb-2.5">
+        <span class="text-[11px] text-[var(--ink-faint)]">
+          <span class="hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>
+          <span v-if="draft.length > 80" class="sm:hidden">{{ draft.length }}</span>
+        </span>
+        <div class="flex items-center gap-2">
+          <button v-if="loading" @click="stopChat" title="中断这一轮，本轮不会记进会话"
+            class="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:bg-[var(--card)] hover:text-[var(--ink)]">
+            <i data-lucide="square" class="h-3 w-3"></i>停止
+          </button>
+          <button @click="send()" :disabled="loading || !draft.trim()"
+            class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-medium text-[var(--card)] transition duration-150 hover:bg-black hover:shadow-[0_2px_8px_rgba(0,0,0,.2)] active:scale-95 disabled:opacity-25 disabled:cursor-not-allowed disabled:shadow-none">
+            发送<i data-lucide="arrow-up" class="h-3.5 w-3.5"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</div>
+
+<aside v-show="cardsOpen" class="flex flex-col bg-[var(--bg)]"
+  :class="isNarrow ? 'fixed inset-y-0 right-0 z-40 w-80 max-w-[88vw] shadow-xl' : 'shrink-0 w-80 border-l border-[var(--line)]'">
   <div class="shrink-0 px-4 py-3 border-b border-[var(--line)] flex items-center justify-between">
     <p class="serif text-sm font-semibold flex items-center gap-1.5"><i data-lucide="layers" class="h-3.5 w-3.5"></i>薄弱点卡片</p>
-    <button @click="toggleCards" class="text-xs text-[var(--ink-faint)] hover:text-[var(--ink)]">收起</button>
+    <button @click="toggleCards" title="收起" class="rounded p-1 text-[var(--ink-faint)] hover:text-[var(--ink)] hover:bg-[var(--card)]"><i data-lucide="panel-right-close" class="h-3.5 w-3.5"></i></button>
   </div>
   <div class="shrink-0 px-4 py-2.5 border-b border-[var(--line)] space-y-2">
     <div class="flex items-center gap-2 text-xs text-[var(--ink-faint)]">
@@ -206,7 +268,7 @@ textarea:focus { outline:none; }
   </div>
 </aside>
 
-<div v-if="wpSuggest.items.length" class="fixed bottom-24 right-6 z-40 w-80 max-w-[92vw] rounded-xl border border-[var(--line)] bg-[var(--card)] shadow-xl p-3">
+<div v-if="wpSuggest.items.length" class="fixed bottom-24 right-6 z-50 w-80 max-w-[92vw] rounded-xl border border-[var(--line)] bg-[var(--card)] shadow-xl p-3">
   <p class="text-xs font-semibold text-[var(--ink)] mb-1.5">发现可能的薄弱点，存成卡片？</p>
   <div class="max-h-56 overflow-y-auto space-y-1.5">
     <label v-for="(it, idx) in wpSuggest.items" :key="idx" class="flex items-start gap-2 text-[12px] leading-5 text-[var(--ink-soft)] cursor-pointer">
@@ -224,31 +286,7 @@ textarea:focus { outline:none; }
   </div>
 </div>
 
-<footer class="shrink-0 relative">
-  <div class="mx-auto w-full max-w-2xl px-6 pb-4">
-    <div class="rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-[0_1px_8px_rgba(20,24,30,.04)] focus-within:shadow-[0_3px_14px_rgba(20,24,30,.08)] focus-within:border-[#B0B8C1] transition duration-200">
-      <textarea ref="inp" v-model="draft" rows="1" @keydown="onKeydown" @input="autoGrow"
-        placeholder="写下你想说的话……"
-        class="max-h-40 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm leading-7 text-[var(--ink)] placeholder:text-[var(--ink-faint)]"></textarea>
-      <div class="flex items-center justify-between px-4 pb-2.5">
-        <span class="text-[11px] text-[var(--ink-faint)]">
-          <span class="hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>
-          <span v-if="draft.length > 80" class="sm:hidden">{{ draft.length }}</span>
-        </span>
-        <div class="flex items-center gap-2">
-          <button v-if="loading" @click="stopChat" title="中断这一轮，本轮不会记进会话"
-            class="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:bg-[var(--card)] hover:text-[var(--ink)]">
-            <i data-lucide="square" class="h-3 w-3"></i>停止
-          </button>
-          <button @click="send()" :disabled="loading || !draft.trim()"
-            class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-medium text-[var(--card)] transition duration-150 hover:bg-black hover:shadow-[0_2px_8px_rgba(0,0,0,.2)] active:scale-95 disabled:opacity-25 disabled:cursor-not-allowed disabled:shadow-none">
-            发送<i data-lucide="arrow-up" class="h-3.5 w-3.5"></i>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-</footer>
+
 </div>
 
 
@@ -278,6 +316,8 @@ createApp({
     const showScrollBtn = ref(false);
     const lastSent = ref('');
     const jobId = ref(null);
+    const sidebarOpen = ref(true);
+    const isNarrow = ref(false);
     const cardsOpen = ref(false);
     const wpDecks = ref([]);
     const wpCards = ref([]);
@@ -487,6 +527,7 @@ createApp({
 
     function toggleCards() {
       cardsOpen.value = !cardsOpen.value;
+      if (cardsOpen.value && isNarrow.value) sidebarOpen.value = false;
       if (cardsOpen.value) loadWeakpoints();
       renderIcons();
     }
@@ -625,7 +666,8 @@ createApp({
       } catch(e) {}
     }
 
-    async function switchSession() {
+    async function switchSession(id) {
+      if (id) currentId.value = id;
       try {
         const res = await fetch('/api/session/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: currentId.value }) });
         await res.json();
@@ -638,17 +680,42 @@ createApp({
     }
 
     async function deleteSession() {
-      if (currentId.value === 'default') return;
+      await deleteSessionById(currentId.value);
+    }
+
+    async function deleteSessionById(id) {
+      if (!id || id === 'default') return;
+      const prev = currentId.value;
+      if (id !== prev) {
+        await fetch('/api/session/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: prev }) });
+      }
       try {
-        const res = await fetch('/api/session/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: currentId.value }) });
+        const res = await fetch('/api/session/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
         const data = await res.json();
-        currentId.value = data.id || 'default';
+        currentId.value = (id === prev) ? (data.id || 'default') : prev;
         messages.value = [];
         error.value = '';
         stepsOpen.value = {};
         await loadSessions();
-        await restoreHistory();
+        if (id === prev) await restoreHistory();
       } catch(e) {}
+    }
+
+    function toggleSidebar() {
+      sidebarOpen.value = !sidebarOpen.value;
+      if (sidebarOpen.value && isNarrow.value) cardsOpen.value = false;
+      nextTick(renderIcons);
+    }
+
+    function closeOverlays() { sidebarOpen.value = false; cardsOpen.value = false; }
+
+    function syncNarrow() {
+      const n = window.innerWidth < 900;
+      if (n === isNarrow.value) return;
+      isNarrow.value = n;
+      if (n) { sidebarOpen.value = false; cardsOpen.value = false; }
+      else { sidebarOpen.value = true; }
+      renderIcons();
     }
 
     async function restoreHistory() {
@@ -675,6 +742,8 @@ createApp({
     }
 
     onMounted(() => {
+      syncNarrow();
+      window.addEventListener('resize', syncNarrow);
       renderIcons();
       loadMe();
       restoreHistory();
@@ -682,7 +751,7 @@ createApp({
       inp.value && inp.value.focus();
     });
 
-  return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession, me, loadMe, logout,
+    return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession, deleteSessionById, sidebarOpen, toggleSidebar, isNarrow, closeOverlays, me, loadMe, logout,
     jobId, stopChat, cardsOpen, toggleCards, wpDecks, wpCards, wpStats, wpDeck, wpDraft, wpSuggest, extractingIdx, notice, flash, openPick,
     loadWeakpoints, wpAddManual, wpDeckCreate, wpDeckDelete, wpToggle, wpDelete, wpMove, wpPractice, wpSaveSuggest };
   }
