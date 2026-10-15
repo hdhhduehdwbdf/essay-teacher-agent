@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <title>RAG 原理 · 叁月聚粮分身</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="https://unpkg.com/lucide@latest"></script>
+<script src="/vendor/tailwind.js"></script>
+<script src="/vendor/lucide.min.js"></script>
 <style>body{font-family:"Segoe UI","Microsoft YaHei",sans-serif}.arrow{color:#f59e0b}</style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
@@ -65,9 +65,9 @@
           <p class="text-slate-200 font-semibold">关键词路 BM25</p>
           <p class="text-slate-500">字面匹配，零依赖</p>
         </div>
-        <div class="bg-slate-950 border border-slate-800 rounded-lg p-4 opacity-60">
+        <div id="vec-card" class="bg-slate-950 border border-slate-800 rounded-lg p-4 opacity-60">
           <p class="text-slate-200 font-semibold">语义路 向量</p>
-          <p class="text-slate-400">意思相近也能召回<br><span class="text-amber-400">待配置 KEY</span></p>
+          <p class="text-slate-400">意思相近也能召回<br><span id="vec-status" class="text-amber-400">检测中…</span></p>
         </div>
       </div>
     </div>
@@ -96,12 +96,12 @@
   <!-- 数据一览 -->
   <h2 class="text-lg font-semibold mb-3 flex items-center gap-2"><i data-lucide="bar-chart-3" class="w-5 h-5 text-amber-400"></i>③ 当前知识库数据</h2>
   <div class="grid grid-cols-6 gap-3 mb-8 text-center">
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-amber-400">87</p><p class="text-[10px] text-slate-400 mt-1">语料文件</p></div>
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-amber-400">838</p><p class="text-[10px] text-slate-400 mt-1">检索片段</p></div>
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-emerald-400">49</p><p class="text-[10px] text-slate-400 mt-1">视频文案</p></div>
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-emerald-400">15</p><p class="text-[10px] text-slate-400 mt-1">课程</p></div>
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-emerald-400">10</p><p class="text-[10px] text-slate-400 mt-1">人格总结</p></div>
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-slate-500">BM25</p><p class="text-[10px] text-slate-400 mt-1">当前模式</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-amber-400" id="d-files">-</p><p class="text-[10px] text-slate-400 mt-1">语料文件</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-amber-400" id="d-chunks">-</p><p class="text-[10px] text-slate-400 mt-1">检索片段</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-emerald-400" id="d-video">-</p><p class="text-[10px] text-slate-400 mt-1">视频文案</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-emerald-400" id="d-course">-</p><p class="text-[10px] text-slate-400 mt-1">课程</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-emerald-400" id="d-persona">-</p><p class="text-[10px] text-slate-400 mt-1">人格总结</p></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3"><p class="text-xl font-bold text-slate-500" id="d-mode">-</p><p class="text-[10px] text-slate-400 mt-1">当前模式</p></div>
   </div>
 
   <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-sm text-slate-300">
@@ -113,6 +113,31 @@
     <a href="/admin" class="text-amber-400 hover:underline text-sm">← 返回知识库管理</a>
   </div>
 </div>
-<script>lucide.createIcons();</script>
+<script>
+lucide.createIcons();
+fetch('/api/system').then(r=>r.json()).then(s=>{
+  const card = document.getElementById('vec-card');
+  const st = document.getElementById('vec-status');
+  if(s.has_vector_key){
+    card.classList.remove('opacity-60');
+    card.classList.add('border-emerald-500/40');
+    st.textContent = `${s.vector_provider} ✓ 已启用`;
+    st.className = 'text-emerald-400';
+  } else {
+    st.textContent = '待配置 KEY';
+  }
+});
+fetch('/api/stats').then(r=>r.json()).then(s=>{
+  document.getElementById('d-files').textContent = s.files;
+  document.getElementById('d-chunks').textContent = s.chunks;
+  document.getElementById('d-mode').textContent = s.mode.includes('+') ? '混合' : 'BM25';
+});
+fetch('/api/categories').then(r=>r.json()).then(d=>{
+  const c = d.categories || {};
+  document.getElementById('d-video').textContent = c['视频文案'] ?? 0;
+  document.getElementById('d-course').textContent = c['课程'] ?? 0;
+  document.getElementById('d-persona').textContent = c['人格总结'] ?? 0;
+});
+</script>
 </body>
 </html>

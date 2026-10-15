@@ -4,11 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>作文老师</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<script src="/vendor/tailwind.js"></script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%93%9D%3C/text%3E%3C/svg%3E">
 <script src="/vendor/vue.global.prod.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600&display=swap" rel="stylesheet">
 <script src="/vendor/lucide.min.js"></script>
 <style>
 :root { --bg:#FFFBF4; --ink:#2D2A26; --ink-soft:#8A8478; --ink-faint:#B8B0A3; --line:#EBE3D6; --accent:#E8674A; --accent-soft:#FFF0EA; --bubble:#FFF0E4; --card:#FFF; --link:#4A9B8E; --teal:#4A9B8E; --teal-soft:#E8F5F0; --sun:#FFD93D; --sky:#7EC8E3; --lav:#C9B8E8; }
@@ -63,6 +61,8 @@ textarea:focus { outline:none; }
 .tag-技巧 { background:#FFF3D6; color:#B8860B; }
 .tag-素材 { background:#EDE8F5; color:#7B5EA7; }
 .wavy-divider { height:2px; background:repeating-linear-gradient(90deg,var(--line) 0,var(--line) 6px,transparent 6px,transparent 12px); border:none; }
+i[data-lucide] { display:inline-flex; align-items:center; justify-content:center; }
+i[data-lucide] > svg { width:100%; height:100%; }
 </style>
 </head>
 <body class="h-full overflow-hidden text-[var(--ink)] antialiased">
@@ -90,10 +90,10 @@ textarea:focus { outline:none; }
       <span class="flex items-center gap-2 mt-0.5 pl-5">
         <span class="text-[10px] text-[var(--ink-faint)]">{{ s.turns || 0 }} 轮</span>
         <span v-if="s.updated" class="text-[10px] text-[var(--ink-faint)] truncate">{{ s.updated }}</span>
-        <button v-if="s.id !== 'default'" @click.stop="deleteSessionById(s.id)" title="删除这个会话"
-          class="ml-auto opacity-0 group-hover:opacity-100 hover:opacity-100 text-[var(--ink-faint)] hover:text-red-500">
+        <span v-if="s.id !== 'default'" role="button" @click.stop="deleteSessionById(s.id)" title="删除这个会话"
+          class="ml-auto inline-flex opacity-0 group-hover:opacity-100 hover:opacity-100 text-[var(--ink-faint)] hover:text-red-500 cursor-pointer">
           <i data-lucide="trash-2" class="h-3 w-3"></i>
-        </button>
+        </span>
       </span>
     </button>
   </div>
@@ -472,8 +472,39 @@ createApp({
       if (!el) return;
       showScrollBtn.value = el.scrollHeight - el.scrollTop - el.clientHeight > 200;
     }
+    const lucideCache = {};
+    function lucideSvg(name) {
+      if (name in lucideCache) return lucideCache[name];
+      const key = String(name || '').split('-').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+      const spec = window.lucide && window.lucide.icons && window.lucide.icons[key];
+      if (!spec) return (lucideCache[name] = '');
+      const SVGNS = 'http://www.w3.org/2000/svg';
+      const box = document.createElementNS(SVGNS, 'svg');
+      const put = (attrs, el) => { for (const k in attrs) el.setAttribute(k, attrs[k]); };
+      const walk = (nodes, parent) => {
+        (nodes || []).forEach(n => {
+          if (!Array.isArray(n)) return;
+          const node = document.createElementNS(SVGNS, n[0]);
+          put(n[1] || {}, node);
+          parent.appendChild(node);
+          walk(n[2], node);
+        });
+      };
+      put(spec[1] || {}, box);
+      walk(spec[2], box);
+      box.setAttribute('width', '100%');
+      box.setAttribute('height', '100%');
+      return (lucideCache[name] = box.outerHTML);
+    }
     function renderIcons() {
-      nextTick(() => window.lucide && window.lucide.createIcons());
+      nextTick(() => {
+        document.querySelectorAll('i[data-lucide]').forEach(el => {
+          const name = el.getAttribute('data-lucide');
+          if (!name || el.getAttribute('data-rendered') === name) return;
+          const svg = lucideSvg(name);
+          if (svg) { el.innerHTML = svg; el.setAttribute('data-rendered', name); }
+        });
+      });
     }
     function autoGrow() {
       const el = inp.value;
@@ -609,8 +640,8 @@ createApp({
       try {
         const q = wpDeck.value ? ('?deck=' + encodeURIComponent(wpDeck.value)) : '';
         const d = await (await fetch('/api/weakpoints' + q)).json();
-        wpDecks.value = d.decks || [];
-        wpCards.value = d.cards || [];
+        wpDecks.value = (d.decks || []).filter(Boolean);
+        wpCards.value = (d.cards || []).filter(Boolean);
         wpStats.value = d.stats || {};
       } catch (e) {}
     }
@@ -673,7 +704,7 @@ createApp({
         cardsOpen.value = true;
         if (d.decks) wpDecks.value = d.decks;
         if (d.stats) wpStats.value = d.stats;
-        if (d.cards) wpCards.value = d.cards.map(c => ({ ...c }));
+        if (d.cards) wpCards.value = d.cards.filter(Boolean).map(c => ({ ...c }));
         flash('已存 ' + (d.added || 0) + ' 张卡片' + (d.merged ? ('，另有 ' + d.merged + ' 张与已有重复、已累计') : ''));
       } catch (e) { flash('保存失败'); }
       finally { savingCard.value = false; }
@@ -711,7 +742,7 @@ createApp({
       try {
         const res = await fetch('/api/sessions');
         const data = await res.json();
-        sessions.value = (data.sessions || []).map(s => ({
+        sessions.value = (data.sessions || []).filter(s => s && s.id).map(s => ({
           id: s.id,
           label: s.id === 'default' ? '默认会话' : (s.id.slice(1, 9) + ' 会话'),
           updated: s.updated,
