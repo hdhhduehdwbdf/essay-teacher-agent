@@ -179,7 +179,7 @@ i[data-lucide] > svg { width:100%; height:100%; }
             <span class="text-[11px] tracking-wide text-[var(--ink-faint)]">老师</span>
           </div>
 
-          <div v-if="m.role === 'user'" class="bubble-user inline-block max-w-full px-4 py-2.5 text-sm leading-7 whitespace-pre-wrap break-words">{{ m.text }}</div>
+          <div v-if="m.role === 'user'" class="bubble-user inline-block max-w-full px-4 py-2.5 text-sm leading-7 whitespace-pre-wrap break-words"><span v-if="m.command" class="mr-1.5 rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10.5px] text-[var(--accent)] align-middle">/{{ m.command }}</span>{{ m.text }}</div>
 
           <div v-else>
             <div v-if="m.steps.length" class="mb-2.5">
@@ -244,9 +244,16 @@ i[data-lucide] > svg { width:100%; height:100%; }
 
 
 <footer class="shrink-0 relative">
-  <div class="mx-auto w-full max-w-2xl px-6 pb-4">
+  <div class="relative mx-auto w-full max-w-2xl px-6 pb-4">
+    <div v-if="cmdMatches.length" class="absolute left-6 right-6 bottom-full mb-2 z-20 rounded-xl border border-[var(--line)] bg-[var(--card)] shadow-lg p-1.5">
+      <button v-for="c in cmdMatches" :key="c.name" @click="applyCommand(c.name)" class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition hover:bg-[var(--bg)]">
+        <span class="rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-[11px] text-[var(--accent)]">/{{ c.name }}</span>
+        <span class="text-[12px] text-[var(--ink-soft)]">{{ c.desc }}</span>
+        <span class="ml-auto text-[10.5px] text-[var(--ink-faint)]">{{ c.usage }}</span>
+      </button>
+    </div>
     <div class="rounded-3xl border-2 border-[var(--line)] bg-[var(--card)] shadow-[0_2px_12px_rgba(232,103,74,.06)] focus-within:border-[var(--accent)]/40 focus-within:shadow-[0_4px_20px_rgba(232,103,74,.10)] transition duration-200">
-      <textarea ref="inp" v-model="draft" rows="1" @keydown="onKeydown" @input="autoGrow"
+      <textarea ref="inp" v-model="draft" rows="1" @keydown="onKeydown" @input="onDraftInput"
         placeholder="把作文或题目发给我 ✏️"
         class="max-h-40 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm leading-7 text-[var(--ink)] placeholder:text-[var(--ink-faint)]"></textarea>
       <div class="flex items-center justify-between px-4 pb-2.5">
@@ -362,7 +369,7 @@ i[data-lucide] > svg { width:100%; height:100%; }
 
 
 <script>
-const { createApp, ref, nextTick, onMounted } = Vue;
+const { createApp, ref, computed, nextTick, onMounted } = Vue;
 
 const _origFetch = window.fetch;
 window.fetch = async function (url, opts) {
@@ -396,6 +403,12 @@ createApp({
     const wpDeck = ref('');
     const wpDraft = ref('');
     const wpSuggest = ref({ items: [], deck: '' });
+    const commands = ref([]);
+    const cmdMatches = computed(() => {
+      const m = /^\/([\u4e00-\u9fffA-Za-z]{0,8})$/.exec(draft.value.trim());
+      if (!m) return [];
+      return commands.value.filter(c => c.name.startsWith(m[1])).slice(0, 5);
+    });
     const savingCard = ref(false);
     const lastUserText = ref('');
     const extractingIdx = ref(-1);
@@ -520,7 +533,10 @@ createApp({
       autoGrow();
       lastSent.value = text;
       lastUserText.value = text;
-      messages.value.push({ role: 'user', text, steps: [] });
+      let cmd = '';
+      const mm = /^\/([\u4e00-\u9fffA-Za-z]{1,8})/.exec(text);
+      if (mm && commands.value.some(c => c.name === mm[1])) cmd = mm[1];
+      messages.value.push({ role: 'user', text, steps: [], command: cmd });
       loading.value = true;
       error.value = null;
       startHintCycle();
@@ -837,7 +853,7 @@ createApp({
         if (Array.isArray(data.history) && data.history.length) {
           for (let i = 0; i < data.history.length; i += 2) {
             if (data.history[i] && data.history[i].role === 'user') {
-              messages.value.push({ role: 'user', text: data.history[i].content || '', steps: [] });
+              messages.value.push({ role: 'user', text: data.history[i].display || data.history[i].content || '', steps: [], command: data.history[i].command || '' });
             }
             if (data.history[i+1] && data.history[i+1].role === 'assistant') {
               messages.value.push({ role: 'assistant', text: data.history[i+1].content || '', steps: [] });
@@ -849,11 +865,24 @@ createApp({
     }
 
     function toggleSteps(i) { stepsOpen.value[i] = !stepsOpen.value[i]; }
+
+    function onDraftInput() { autoGrow(); }
+    function applyCommand(name) {
+      draft.value = '/' + name + ' ';
+      nextTick(() => { inp.value && inp.value.focus(); autoGrow(); });
+    }
     function onKeydown(e) {
+      if (e.key === 'Tab' && cmdMatches.value.length) {
+        e.preventDefault(); applyCommand(cmdMatches.value[0].name); return;
+      }
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
     }
 
     onMounted(() => {
+      fetch('/api/commands').then(r => r.json()).then(d => {
+        if (d && Array.isArray(d[1])) commands.value = d[1];
+        else if (Array.isArray(d)) commands.value = d;
+      }).catch(() => {});
       syncNarrow();
       window.addEventListener('resize', syncNarrow);
       renderIcons();
@@ -865,6 +894,7 @@ createApp({
 
     return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession, deleteSessionById, sidebarOpen, toggleSidebar, isNarrow, closeOverlays, me, loadMe, logout,
     jobId, stopChat, cardsOpen, toggleCards, wpDecks, wpCards, wpStats, wpDeck, wpDraft, wpSuggest, extractingIdx, notice, flash, openPick,
+    commands, cmdMatches, applyCommand, onDraftInput,
     loadWeakpoints, wpAddManual, wpDeckCreate, wpDeckDelete, wpToggle, wpDelete, wpMove, wpPractice, wpSaveSuggest, savingCard };
   }
 }).mount('#app');

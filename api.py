@@ -5,6 +5,7 @@ import json
 import os
 import platform
 import re
+import commands
 import shutil
 import threading
 import time
@@ -145,6 +146,7 @@ def sessions_list(user=None, is_admin=False):
         except Exception:
             turns = 0
         items.append({"id": r["id"], "key": f"{r.get('user', user)}__{r['id']}",
+                      "title": r.get("title") or "",
                       "user": r.get("user", user or ""),
                       "updated": r.get("updated", ""), "turns": turns})
     items.sort(key=lambda x: x["updated"], reverse=True)
@@ -375,6 +377,10 @@ def chat_stream(req, user, emit):
     return ""
 
 
+def commands_catalog():
+    return 200, commands.catalog(), None
+
+
 def chat_stop(req, user):
     job_id = int(req.get("job_id") or 0)
     if not job_id:
@@ -396,6 +402,7 @@ def run_job(job):
     import knowledge_base
     import embeddings
     from llm import chat_with_tool_loop_stream
+    from net import Cancelled
     user, sid, q = job["user"], job["sid"], job["message"]
     job_id = job["id"]
 
@@ -405,14 +412,30 @@ def run_job(job):
     def emit(ev):
         store.job_event_add(job_id, ev)
 
+    cancel = threading.Event()
+    def _watch_cancel():
+        while not cancel.is_set():
+            status = store.job_get(job_id)["status"]
+            if status == "cancelled":
+                cancel.set()
+                return
+            if status in ("done", "failed"):
+                return
+            time.sleep(0.4)
+    threading.Thread(target=_watch_cancel, daemon=True).start()
     try:
         history = load_session(user, sid)
+        if not history:
+            store.session_rename(user, sid, (q or "新对话")[:24])
         memory.touch()
         m = re.match(r"^(?:请?记住|帮我记住|别忘[了记])[：:，,\s]*(.+)$", q.strip())
         if m:
             memory.add(m.group(1).strip()[:200], "fact", user)
+        cmd_name, cmd_body, prompt = commands.parse(q)
         steps = []
-        hits = knowledge_base.retrieve(q)
+        if cmd_name:
+            steps.append({"type": "command", "text": f"快捷指令：/{cmd_name}"})
+        hits = knowledge_base.retrieve(cmd_body if cmd_body else q)
         steps.append({"type": "retrieval", "text": f"检索模式: {embeddings.describe()}"})
         for h in hits[:3]:
             steps.append({"type": "retrieval",
@@ -420,27 +443,31 @@ def run_job(job):
         if not hits:
             steps.append({"type": "retrieval", "text": "知识库未命中（空库或无相关语料）"})
         emit({"type": "steps", "steps": steps})
-        messages = agent.build_messages(history, q, verbose=False, hits=hits, user=user)
+        messages = agent.build_messages(history, prompt, verbose=False, hits=hits, user=user)
 
         def on_delta(text):
             if store.job_get(job_id)["status"] == "cancelled":
                 raise _Stopped()
             emit({"type": "delta", "text": text})
 
-        reply = chat_with_tool_loop_stream(messages, steps, on_delta)
+        reply = chat_with_tool_loop_stream(messages, steps, on_delta, cancel=cancel)
         if steps:
             emit({"type": "steps", "steps": steps})
-        history.append({"role": "user", "content": q})
+        history.append({"role": "user", "content": prompt, "display": q, "command": cmd_name or ""})
         history.append({"role": "assistant", "content": reply})
         store.session_save(user, sid, history)
         threading.Thread(target=memory.maybe_extract, args=(user, sid), daemon=True).start()
         store.job_finish(job_id, "done", reply, steps=steps)
         return reply
-    except _Stopped:
+    except (_Stopped, Cancelled):
         emit({"type": "stopped"})
         store.job_finish(job_id, "cancelled", "")
         return ""
     except Exception as e:
+        if store.job_get(job_id)["status"] == "cancelled":
+            emit({"type": "stopped"})
+            store.job_finish(job_id, "cancelled", "")
+            return ""
         store.job_finish(job_id, "failed", error=f"{type(e).__name__}: {e}")
         _alert(f"任务 {job_id} 执行失败：{type(e).__name__}: {e}")
         return ""

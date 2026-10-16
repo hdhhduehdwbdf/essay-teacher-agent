@@ -206,11 +206,28 @@ def user_set_quota(username, quota):
 
 # ---------- 会话 ----------
 
+def _ensure_session_title():
+    try:
+        _exec("ALTER TABLE sessions ADD COLUMN title TEXT DEFAULT ''")
+    except Exception:
+        pass
+
+
+_ensure_session_title()
+
+
 def session_save(user, sid, history):
     blob = json.dumps(history, ensure_ascii=False)
     now = time.strftime("%Y-%m-%d %H:%M:%S")
+    rows = _rows("SELECT title FROM sessions WHERE sid=? AND (uid=? OR user=?)", (sid, _uid(user), user))
+    title = rows[0]["title"] if rows else ""
     _exec("DELETE FROM sessions WHERE sid=? AND (uid=? OR user=?)", (sid, _uid(user), user))
-    _exec("INSERT INTO sessions(uid,user,sid,updated,history) VALUES(?,?,?,?,?)", (_uid(user), user, sid, now, blob))
+    _exec("INSERT INTO sessions(uid,user,sid,updated,history,title) VALUES(?,?,?,?,?,?)",
+          (_uid(user), user, sid, now, blob, title))
+
+
+def session_rename(user, sid, title):
+    _exec("UPDATE sessions SET title=? WHERE uid=? AND sid=?", (title, _uid(user), sid))
 
 
 def session_load(user, sid):
@@ -246,11 +263,11 @@ def kv_del_prefix(prefix):
 
 
 def sessions_of(user):
-    return _rows("SELECT sid AS id, user, uid, updated, history FROM sessions WHERE uid=? ORDER BY updated DESC", (_uid(user),))
+    return _rows("SELECT sid AS id, user, uid, updated, history, title FROM sessions WHERE uid=? ORDER BY updated DESC", (_uid(user),))
 
 
 def sessions_all():
-    return _rows("SELECT uid, user, sid AS id, updated, history FROM sessions ORDER BY updated DESC")
+    return _rows("SELECT uid, user, sid AS id, updated, history, title FROM sessions ORDER BY updated DESC")
 
 
 # ---------- 长期记忆 ----------

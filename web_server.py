@@ -47,6 +47,7 @@ GET_ROUTES = {
     "/api/memory": lambda qs, user: (403, {"error": "仅管理员可查看长期记忆"}, None) if auth.role(user) != "admin" else (200, api.memory_list(), None),
     "/api/admin/users": lambda qs, user: (200, api.admin_users_payload(), None),
     "/api/weakpoints": lambda qs, user: api.weakpoints_list(qs, user),
+    "/api/commands": lambda qs, user: api.commands_catalog(),
     "/api/admin/user": lambda qs, user: api.admin_user_overview(unquote((qs.get("username") or [""])[0])),
     "/api/admin/user/history": lambda qs, user: api.admin_user_history(
         unquote((qs.get("username") or [""])[0]), unquote((qs.get("sid") or [""])[0])),

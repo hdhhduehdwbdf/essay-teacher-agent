@@ -10,6 +10,7 @@ import time
 import config
 import net
 import store
+from net import Cancelled
 
 def _count_call():
     """P3 运营看板：按日统计真实 LLM 调用次数（含工具循环与记忆抽取）。"""
@@ -33,7 +34,7 @@ def _pick_provider():
     )
 
 
-def chat(messages, use_tools=True, max_tokens=1500):
+def chat(messages, use_tools=True, max_tokens=1500, cancel=None):
     """调用模型。返回 assistant 消息对象（可能含 tool_calls）。
     messages 格式与 OpenAI 兼容：
       {"role": "system"|"user"|"assistant"|"tool", "content": str, ...}
@@ -54,6 +55,7 @@ def chat(messages, use_tools=True, max_tokens=1500):
         headers={"Authorization": f"Bearer {key}"},
         timeout=120,
         retries=3,
+        cancel=cancel,
     )
     msg = data["choices"][0]["message"]
     _count_call()
@@ -153,7 +155,7 @@ def _sse_iter(resp):
         yield data
 
 
-def chat_stream(messages, use_tools=True, on_delta=None, max_tokens=1500):
+def chat_stream(messages, use_tools=True, on_delta=None, max_tokens=1500, cancel=None):
     """流式调用模型：content 增量通过 on_delta 实时回调，返回完整 assistant 消息。
     模型点名工具时，tool_calls 以增量累积后一次性返回（调用方执行工具后可再次流式调用）。"""
     provider, key, url = _pick_provider()
@@ -176,8 +178,12 @@ def chat_stream(messages, use_tools=True, on_delta=None, max_tokens=1500):
     content_parts = []
     tool_calls = {}
     _count_call()
+    if cancel is not None and cancel.is_set():
+        raise Cancelled("已停止")
     with urllib.request.urlopen(req, timeout=120) as resp:
         for data in _sse_iter(resp):
+            if cancel is not None and cancel.is_set():
+                raise Cancelled("已停止")
             try:
                 chunk = json.loads(data)
             except ValueError:
@@ -206,11 +212,11 @@ def chat_stream(messages, use_tools=True, on_delta=None, max_tokens=1500):
     return {"role": "assistant", "content": "".join(content_parts)}
 
 
-def chat_with_tool_loop_stream(messages, steps, on_delta, max_loops=3):
+def chat_with_tool_loop_stream(messages, steps, on_delta, max_loops=3, cancel=None):
     """chat_with_tool_loop_collector 的流式版：最终回答通过 on_delta 逐字吐出，
     工具轮步骤照常收集到 steps。"""
     for _ in range(max_loops):
-        msg = chat_stream(messages, use_tools=True, on_delta=on_delta)
+        msg = chat_stream(messages, use_tools=True, on_delta=on_delta, cancel=cancel)
         if not msg.get("tool_calls"):
             return msg.get("content") or ""
         messages.append(msg)
@@ -229,4 +235,4 @@ def chat_with_tool_loop_stream(messages, steps, on_delta, max_loops=3):
                 "tool_call_id": tc["id"],
                 "content": result if isinstance(result, str) else str(result),
             })
-    return chat_stream(messages, use_tools=False, on_delta=on_delta, max_tokens=1500).get("content") or ""
+    return chat_stream(messages, use_tools=False, on_delta=on_delta, max_tokens=1500, cancel=cancel).get("content") or ""
