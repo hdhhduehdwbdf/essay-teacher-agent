@@ -119,9 +119,13 @@ fetch('/api/system').then(r=>r.json()).then(s=>{
   const card = document.getElementById('vec-card');
   const st = document.getElementById('vec-status');
   if(s.has_vector_key){
+    const v = s.vector || {};
+    if (v.building) st.textContent = '向量索引重建中…';
+    else if (v.total && v.stale) st.textContent = s.vector_provider + ' ⚠ 索引落后（' + v.indexed + '/' + v.total + '）';
+    else if (v.total && !v.stale) st.textContent = s.vector_provider + ' ✓ 已同步（' + v.indexed + ' 条向量）';
     card.classList.remove('opacity-60');
     card.classList.add('border-emerald-500/40');
-    st.textContent = `${s.vector_provider} ✓ 已启用`;
+    if (!(v.total && (v.stale || !v.building))) st.textContent = `${s.vector_provider} ✓ 已启用`;
     st.className = 'text-emerald-400';
   } else {
     st.textContent = '待配置 KEY';

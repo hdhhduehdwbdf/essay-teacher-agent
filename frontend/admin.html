@@ -26,6 +26,9 @@
       <a href="/rag" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm">
         <i data-lucide="workflow" class="w-4 h-4"></i>RAG 原理
       </a>
+      <a href="/ops" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm">
+        <i data-lucide="gauge" class="w-4 h-4"></i>运营看板
+      </a>
       <button id="rebuild" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-sm">
         <i data-lucide="refresh-cw" class="w-4 h-4"></i>重建索引
       </button>
@@ -47,6 +50,7 @@
     <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
       <p class="text-xs text-slate-400 mb-1">检索模式</p>
       <p class="text-sm font-semibold mt-2 text-amber-300" id="stat-mode">-</p>
+      <p class="text-[10px] mt-1" id="vec-state"></p>
     </div>
   </div>
 
@@ -70,6 +74,7 @@
       <select id="user-select" class="w-full mb-2 rounded bg-slate-950 border border-slate-700 px-2 py-1 text-xs"></select>
       <div class="flex gap-2 mt-2">
         <button id="hist-view" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">查看该用户</button>
+        <button id="hist-refresh" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">刷新</button>
         <button id="hist-clear" class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30">清空所选会话</button>
       </div>
     </div>
@@ -148,6 +153,15 @@ async function loadStats(){
   document.getElementById('stat-files').textContent = s.files;
   document.getElementById('stat-chunks').textContent = s.chunks;
   document.getElementById('stat-mode').textContent = s.mode;
+  const v = s.vector || {};
+  const el = document.getElementById('vec-state');
+  if (el) {
+    if (v.building) el.textContent = '向量索引重建中…';
+    else if (!v.total) el.textContent = '';
+    else if (v.stale) el.textContent = '⚠ 向量索引落后（已索引 ' + v.indexed + '/' + v.total + '）';
+    else el.textContent = '向量索引 ✓ 已同步（' + v.indexed + '/' + v.total + '）';
+    el.style.color = v.building ? '#facc15' : (v.stale ? '#f87171' : '#4ade80');
+  }
 }
 async function loadFiles(){
   const d = await (await fetch('/api/files')).json();
@@ -198,7 +212,8 @@ async function preview(path){
   document.getElementById('preview').classList.remove('hidden');
   document.getElementById('edit-file').textContent = '编辑';
   const full = d.content || '';
-  document.getElementById('preview-title').textContent = path + (full.length>=20000 ? '（仅显示前 20000 字符）' : '');
+  const truncated = full.length >= 20000;
+  document.getElementById('preview-title').textContent = path + (truncated ? '（⚠ 仅显示前 20000 字符，点"编辑"会保存截断后的内容，长文件请下载后本地编辑）' : '');
   document.getElementById('preview').textContent = full || '（空文件）';
   document.getElementById('preview-actions').classList.remove('hidden');
 }
@@ -353,6 +368,10 @@ document.getElementById('hist-view').onclick = async ()=>{
   if(panel.classList.contains('hidden')) return;
   await loadUserOverview();
 };
+document.getElementById('hist-refresh').onclick = async ()=>{
+  if (selSession) await renderUserMessages(selSession.username, selSession.sid);
+  else if (!document.getElementById('hist-panel').classList.contains('hidden')) await loadUserOverview();
+};
 
 let selSession = null;
 async function renderUserMessages(username, sid){
@@ -441,6 +460,7 @@ async function loadUsers(){
     delBtn.textContent = '删除'; delBtn.className = 'text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30';
     delBtn.onclick = async ()=>{
       if(!confirm('确定删除用户 ' + u.username + '？')) return;
+      if(prompt('请输入用户名确认删除：') !== u.username) { alert('用户名不匹配，已取消'); return; }
       await fetch('/api/admin/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.username})});
       loadUsers();
     };

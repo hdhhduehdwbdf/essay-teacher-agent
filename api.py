@@ -56,6 +56,7 @@ def stats(user=None, is_admin=True):
     return {"files": len(knowledge_base.read_docs()),
             "chunks": len(eng.meta),
             "mode": embeddings.describe(),
+            "vector": _vector_info(),
             "history": _total_turns() if is_admin else _user_turns(user or "")}
 
 
@@ -84,7 +85,8 @@ def system():
     return {"python": platform.python_version(),
             "uptime_sec": int(time.time() - START_TIME),
             "has_vector_key": bool(getattr(config, "EMBEDDING_API_KEY", "")),
-            "vector_provider": getattr(config, "EMBEDDING_PROVIDER", "")}
+            "vector_provider": getattr(config, "EMBEDDING_PROVIDER", ""),
+            "vector": _vector_info()}
 
 
 def health():
@@ -146,8 +148,8 @@ def sessions_list(user=None, is_admin=False):
         except Exception:
             turns = 0
         items.append({"id": r["id"], "key": f"{r.get('user', user)}__{r['id']}",
-                      "title": r.get("title") or "",
                       "user": r.get("user", user or ""),
+                      "title": (r.get("title") or ""),
                       "updated": r.get("updated", ""), "turns": turns})
     items.sort(key=lambda x: x["updated"], reverse=True)
     return {"sessions": items}
@@ -209,11 +211,21 @@ def session_current(user):
     return 200, {"id": _current_sid(user)}
 
 
-def session_new(user, _req=None):
-    new_sid = "s" + time.strftime("%Y%m%d-%H%M%S")
+def session_new(user, req=None):
+    req = req or {}
+    new_sid = str(req.get("id") or "") or ("s" + time.strftime("%Y%m%d-%H%M%S"))
     _set_current_sid(user, new_sid)
     save_session(user, new_sid, [])
     return 200, {"id": new_sid}
+
+
+def session_rename(user, req):
+    sid = str(req.get("id") or "")
+    title = str(req.get("title") or "").strip()[:30]
+    if not sid or not title:
+        return 400, {"error": "empty"}
+    store.session_rename(user, sid, title)
+    return 200, {"ok": True}
 
 
 def session_switch(user, req):
@@ -254,6 +266,43 @@ def _rebuild_index():
     eng = knowledge_base.get_engine()
     return len(knowledge_base.read_docs()), len(eng.meta)
 
+_vector_lock = threading.Lock()
+_vector_state = {"building": False, "error": "", "last_ok": 0}
+
+
+def _vector_info():
+    import knowledge_base
+    try:
+        import pickle
+        import config
+        path = os.path.join(BASE_DIR, getattr(config, "VECTOR_INDEX_FILE", "index/vectors.pkl"))
+        n_vec = 0
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                n_vec = len(pickle.load(f).get("vectors", []))
+        n_chunks = len(knowledge_base.get_engine().meta)
+        return {"total": n_chunks, "indexed": n_vec, "stale": n_vec != n_chunks,
+                "building": _vector_state["building"], "error": _vector_state["error"]}
+    except Exception as e:
+        return {"total": 0, "indexed": 0, "stale": False, "building": _vector_state["building"],
+                "error": str(e)}
+
+
+def _rebuild_vectors_bg():
+    def _run():
+        with _vector_lock:
+            _vector_state["building"] = True
+            _vector_state["error"] = ""
+            try:
+                import rag
+                rag.get_retriever(force_vector=True)
+                _vector_state["last_ok"] = time.time()
+            except Exception as e:
+                _vector_state["error"] = str(e)
+            finally:
+                _vector_state["building"] = False
+    threading.Thread(target=_run, daemon=True).start()
+
 
 def file_save(req):
     full = _safe_path(req.get("path"))
@@ -264,6 +313,7 @@ def file_save(req):
     with open(full, "w", encoding="utf-8") as f:
         f.write(content)
     files, chunks = _rebuild_index()
+    _rebuild_vectors_bg()
     return 200, {"ok": True, "files": files, "chunks": chunks}
 
 
@@ -284,6 +334,7 @@ def file_upload(req):
         with open(full, "wb") as f:
             f.write(raw)
     files, chunks = _rebuild_index()
+    _rebuild_vectors_bg()
     return 200, {"ok": True, "files": files, "chunks": chunks}
 
 
@@ -299,12 +350,14 @@ def file_delete(req):
         shutil.copy2(full, bak)
     os.remove(full)
     files, chunks = _rebuild_index()
+    _rebuild_vectors_bg()
     return 200, {"ok": True, "files": files, "chunks": chunks}
 
 
 def rebuild():
     files, chunks = _rebuild_index()
-    return {"ok": True, "files": files, "chunks": chunks}
+    _rebuild_vectors_bg()
+    return 200, {"ok": True, "files": files, "chunks": chunks}
 
 
 # ---------- 对话 ----------
@@ -313,9 +366,9 @@ def search(q):
     import knowledge_base
     import embeddings
     hits = knowledge_base.retrieve(q, top_k=6)
-    return {"query": q, "mode": embeddings.describe(),
-            "hits": [{"source": h["source"], "score": h["score"],
-                      "text": h["text"][:400]} for h in hits]}
+    return 200, {"query": q, "mode": embeddings.describe(),
+                 "hits": [{"source": h["source"], "score": h["score"],
+                           "text": h["text"][:400]} for h in hits]}
 
 
 def chat(req, user):
@@ -377,8 +430,16 @@ def chat_stream(req, user, emit):
     return ""
 
 
+def cmd_body_or(q, body):
+    return body if body else q
+
+
 def commands_catalog():
     return 200, commands.catalog(), None
+
+
+def weakpoints_deck_clear(req, user):
+    return _w().deck_clear(user, req.get("id", ""))
 
 
 def chat_stop(req, user):
@@ -435,7 +496,7 @@ def run_job(job):
         steps = []
         if cmd_name:
             steps.append({"type": "command", "text": f"快捷指令：/{cmd_name}"})
-        hits = knowledge_base.retrieve(cmd_body if cmd_body else q)
+        hits = knowledge_base.retrieve(cmd_body_or(q, cmd_body))
         steps.append({"type": "retrieval", "text": f"检索模式: {embeddings.describe()}"})
         for h in hits[:3]:
             steps.append({"type": "retrieval",
@@ -516,6 +577,56 @@ def memory_list_payload(user=None, is_admin=True):
     return memory._load_all(None if is_admin else user)
 
 
+# ---------- 作文打磨 ----------
+
+def coach_state(qs, user):
+    import coach
+    code, payload = coach.state(user)
+    return code, payload, None
+
+
+def coach_enter(req, user):
+    import coach
+    return coach.enter(user, req)
+
+
+def coach_stream(req, user, emit):
+    import coach
+    return coach.submit_stream(user, req, emit)
+
+
+def coach_stop(req, user):
+    """停止当前打磨诊断。前端通过传入的 cancel_event 触发。"""
+    run_id = str(req.get("run_id") or "").strip()
+    if not run_id:
+        return 400, {"error": "missing run_id"}
+    import coach
+    return coach.cancel_run(user, run_id)
+
+
+def coach_ask(req, user):
+    import coach
+    return coach.ask(user, req)
+
+
+def coach_submit(req, user):
+    import coach
+    return coach.submit(user, req)
+
+
+def coach_task_create(req, user):
+    import coach_rules
+    title = str(req.get("title") or "").strip()[:80]
+    prompt = str(req.get("prompt") or "").strip()
+    guide = str(req.get("guide") or "").strip()[:500]
+    grade = str(req.get("grade") or "").strip()[:16]
+    if not title or not prompt:
+        return 400, {"error": "题目和材料要求不能为空"}
+    import store
+    t = store.essay_task_create(user, title, prompt, guide, grade)
+    return 200, {"ok": True, "task": t, "rules_version": coach_rules.RULES_VERSION}
+
+
 # ---------- 鉴权与用户管理 ----------
 
 # ---------- 薄弱点卡片 ----------
@@ -566,7 +677,7 @@ def weakpoints_deck_create(req, user):
 
 
 def weakpoints_deck_rename(req, user):
-    return _w().deck_rename(user, req.get("id", ""), req.get("name", ""))
+    return _w().deck_rename(user, req.get("id", ""), req.get("name", ""), color=req.get("color"))
 
 
 def weakpoints_deck_delete(req, user):
@@ -585,6 +696,12 @@ def auth_login(req):
         auth.record_login_fail(username)
         return 401, {"error": "用户名或密码错误"}
     auth.clear_login_fails(username)
+    role = auth.role(username)
+    scope = str(req.get("scope") or "user")
+    if scope == "admin" and role != "admin":
+        return 403, {"error": "该账号不是管理员，请从用户端登录"}
+    if scope == "user" and role == "admin":
+        return 403, {"error": "管理员请从管理端登录（/admin/login）"}
     return 200, {"ok": True, "token": auth.issue_token(username),
                  "role": auth.role(username), "user": username}
 
