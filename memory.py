@@ -196,6 +196,13 @@ def _extract_inner(user="admin", sid="default"):
             if isinstance(it, dict) and it.get("content") and it.get("type") in CAPS:
                 add(str(it["content"])[:200], it["type"], user, session_id, 0.7)
                 n += 1
+            elif isinstance(it, dict):
+                content = (it.get("content") or it.get("内容") or it.get("信息") or
+                           it.get("事实") or it.get("偏好") or it.get("画像") or "")
+                mtype = (it.get("type") or it.get("类型") or it.get("记忆类型") or "").strip().lower()
+                if content.strip() and mtype in CAPS:
+                    add(str(content)[:200], mtype, user, session_id, 0.7)
+                    n += 1
         processed[session_id] = len(_session_history(session_id))
         st["processed"] = processed
         _save_state(st)
