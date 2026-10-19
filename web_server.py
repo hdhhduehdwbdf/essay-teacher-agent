@@ -28,6 +28,7 @@ CTYPES = {".html": "text/html; charset=utf-8", ".js": "application/javascript; c
 
 GET_ROUTES = {
     "/": lambda qs, user: (200, None, "chat.html"),
+    "/chat": lambda qs, user: (200, None, "chat.html"),
     "/index.html": lambda qs, user: (200, None, "chat.html"),
     "/admin": lambda qs, user: (200, None, "admin.html"),
     "/rag": lambda qs, user: (200, None, "rag.html"),
@@ -37,6 +38,7 @@ GET_ROUTES = {
     "/memory-plan": lambda qs, user: (200, None, "memory_plan.html"),
     "/ops": lambda qs, user: (200, None, "ops.html"),
     "/api/auth/status": lambda qs, user: (200, api.auth_status(user), None),
+    "/api/me": lambda qs, user: (200, api.auth_status(user), None),
     "/api/stats": lambda qs, user: (200, api.stats(user, auth.role(user) == "admin"), None),
     "/api/system": lambda qs, user: (200, api.system(), None),
     "/api/metrics": lambda qs, user: (200, api.metrics(), None),
