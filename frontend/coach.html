@@ -12,7 +12,8 @@
 <style>
   @font-face { font-family: "Ma Shan Zheng"; src: url("/vendor/MaShanZheng-subset.woff2") format("woff2"); font-display: swap; }
   :root { --bg:#FFFBF4; --ink:#2D2A26; --ink-soft:#8A8478; --ink-faint:#B8B0A3; --line:#EBE3D6; --accent:#E8674A; --card:#FFF; --teal:#4A9B8E; --teal-soft:#E8F5F0; --red:#C0453A; --green:#3F7A52; }
-  body { font-family:'PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei UI',system-ui,sans-serif; background:var(--bg); color:var(--ink); letter-spacing:.01em; }
+  body { font-family:'PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei UI',system-ui,sans-serif; background:var(--bg); color:var(--ink); letter-spacing:.01em;
+    background-image:radial-gradient(#E8674A12 1.2px, transparent 1.2px); background-size:26px 26px; }
   .serif { font-family:'Noto Serif SC','Songti SC',serif; }
   .fade-in { animation:fade .5s ease both; }
   @keyframes fade { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
@@ -22,6 +23,20 @@
   @keyframes spin { to{transform:rotate(360deg)} }
   ::-webkit-scrollbar { width:5px; }
   ::-webkit-scrollbar-thumb { background:var(--line); border-radius:5px; }
+  .float { animation:float 3s ease-in-out infinite; }
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+  .wiggle { animation:wiggle 2.4s ease-in-out infinite; }
+  @keyframes wiggle { 0%,100%{transform:rotate(-3deg)} 50%{transform:rotate(3deg)} }
+  .bounce-in { animation:bounceIn .5s cubic-bezier(.34,1.56,.64,1) both; }
+  @keyframes bounceIn { from{opacity:0;transform:scale(.6)} to{opacity:1;transform:scale(1)} }
+  .msg-in { animation:msgIn .4s cubic-bezier(.34,1.3,.64,1) both; }
+  @keyframes msgIn { from{opacity:0;transform:translateY(14px) scale(.97)} to{opacity:1;transform:none} }
+  .step-dot { transition:all .25s cubic-bezier(.34,1.5,.64,1); }
+  .step-item:hover .step-dot { transform:scale(1.25) rotate(8deg); }
+  .confetti { position:fixed; top:-12px; z-index:70; font-size:18px; pointer-events:none; animation:confFall 2.6s ease-in forwards; }
+  @keyframes confFall { to{ transform:translateY(105vh) rotate(540deg); opacity:.9 } }
+  .genre-btn:active { transform:scale(.94); }
+
   .prose-reply { line-height:1.85; }
   .prose-reply h1 { font-size:1.05em; font-weight:600; margin:.6em 0 .3em; }
   .prose-reply h2 { font-size:1em; font-weight:600; margin:.6em 0 .3em; }
@@ -38,13 +53,13 @@
   <div v-if="sidebarOpen" class="fixed inset-0 bg-black/30 z-30 lg:hidden" @click="sidebarOpen = false"></div>
   <aside class="shrink-0 border-r border-[var(--line)] flex flex-col overflow-hidden fixed lg:static inset-y-0 left-0 z-40 bg-[var(--bg)] transition-transform duration-200" :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'" :style="{ width: sidebarW + 'px' }">
     <div class="h-[52px] shrink-0 px-3 flex items-center justify-between border-b border-[var(--line)]">
-      <p class="serif text-sm font-semibold flex items-center gap-1.5"><i data-lucide="pen-line" class="h-3.5 w-3.5 text-[var(--accent)]"></i>作文打磨</p>
+      <p class="serif text-sm font-semibold flex items-center gap-1.5"><span class="wiggle inline-block">✍️</span>作文打磨</p>
     </div>
     <div class="shrink-0 border-b border-[var(--line)] px-3 py-2 flex gap-1.5">
       <button @click="switchGenre('议论文')" :disabled="busy" class="flex-1 rounded-lg px-2 py-1.5 text-xs border transition"
-        :class="genre === '议论文' ? 'border-[var(--accent)] text-[var(--accent)] font-medium' : 'border-[var(--line)] text-[var(--ink-soft)] hover:text-[var(--ink)]'">议论文</button>
+        :class="genre === '议论文' ? 'border-[var(--accent)] text-[var(--accent)] font-medium' : 'border-[var(--line)] text-[var(--ink-soft)] hover:text-[var(--ink)]'"><span class="mr-0.5">⚔️</span>议论文</button>
       <button @click="switchGenre('记叙文')" :disabled="busy" class="flex-1 rounded-lg px-2 py-1.5 text-xs border transition"
-        :class="genre === '记叙文' ? 'border-[var(--teal)] text-[var(--teal)] font-medium' : 'border-[var(--line)] text-[var(--ink-soft)] hover:text-[var(--ink)]'">记叙文</button>
+        :class="genre === '记叙文' ? 'border-[var(--teal)] text-[var(--teal)] font-medium' : 'border-[var(--line)] text-[var(--ink-soft)] hover:text-[var(--ink)]'"><span class="mr-0.5">🌱</span>记叙文</button>
     </div>
     <div v-if="task" class="shrink-0 border-b border-[var(--line)] px-3 py-3">
       <div class="rounded-xl border border-[var(--line)] bg-[var(--card)] p-3">
@@ -64,13 +79,23 @@
       </div>
     </div>
     <div class="flex-1 overflow-y-auto px-2 py-3 space-y-1">
-      <div v-for="(st, i) in stepDefs" :key="i" class="rounded-lg px-3 py-2 border transition"
+      <div v-if="run && run.status === 'active'" class="px-1 pb-2">
+        <div class="flex items-center justify-between text-[10px] text-[var(--ink-faint)] mb-1">
+          <span>🎯 打磨进度</span><span>{{ Math.min(run.step, stepDefs.length) }}/{{ stepDefs.length }}</span>
+        </div>
+        <div class="h-2 rounded-full overflow-hidden bg-[var(--line)]">
+          <div class="h-full rounded-full transition-all duration-500" style="background:linear-gradient(90deg,#FFD93D,#4A9B8E,#E8674A);background-size:200% 100%;animation:shimmer 2.5s linear infinite" :style="{ width: progressPct + '%' }"></div>
+        </div>
+      </div>
+      <div v-for="(st, i) in stepDefs" :key="i" class="step-item rounded-lg px-3 py-2 border transition"
         :class="run && run.step >= i + 1 ? 'border-[var(--line)] bg-[var(--card)]' : 'border-transparent'">
         <span class="flex items-center gap-2">
-          <span class="w-4 h-4 shrink-0 rounded-full flex items-center justify-center text-[9px]"
+          <span class="step-dot shrink-0 rounded-full flex items-center justify-center text-[9px] w-[18px] h-[18px]"
             :class="stepDone(i + 1) ? 'text-white' : 'border border-[var(--line)] text-[var(--ink-faint)]'"
             :style="stepDone(i + 1) ? 'background:var(--green)' : ''">{{ stepMark(i + 1) }}</span>
           <span class="text-xs" :class="run && run.step === i + 1 && run.status === 'active' ? 'text-[var(--accent)] font-medium' : 'text-[var(--ink-soft)]'">{{ st }}</span>
+          <span v-if="run && run.step === i + 1 && run.status === 'active'" class="ml-auto text-[10px] float">🔥</span>
+          <span v-else-if="stepDone(i + 1)" class="ml-auto text-[10px]">⭐</span>
         </span>
       </div>
     </div>
@@ -102,8 +127,9 @@
         <div v-if="loading" class="text-xs text-[var(--ink-faint)]">加载中…</div>
         <template v-else>
           <div v-if="!run" class="fade-in">
-            <p class="serif text-2xl font-semibold leading-relaxed">你的文章，我们<span style="color:var(--accent)">一环一环</span>磨</p>
-            <p class="mt-3 text-sm leading-7 text-[var(--ink-soft)]">交一稿，我做整体诊断、建主稿；然后带你走七个环节，每个环节改到过关才往下走。</p>
+            <p class="text-4xl float inline-block">🪄</p>
+            <p class="serif text-2xl font-semibold leading-relaxed mt-1">你的文章，我们<span style="color:var(--accent)">一环一环</span>磨</p>
+            <p class="mt-3 text-sm leading-7 text-[var(--ink-soft)]">交一稿，我做整体诊断、建主稿；然后带你闯关——每个环节改到过关才解锁下一关 🎮</p>
 
             <div v-if="tasks.length" class="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4">
               <p class="text-[13px] font-medium mb-2">本次作文题目</p>
@@ -114,7 +140,7 @@
                 class="btn-pop mt-4 inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-white"
                 style="background:var(--accent)">
                 <span v-if="busy" class="spin inline-block h-3 w-3 rounded-full border-2 border-white border-t-transparent"></span>
-                开始打磨
+                🚀 开始打磨
               </button>
             </div>
 
@@ -174,7 +200,7 @@
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="rounded px-1.5 py-0.5 text-[10px] font-medium"
                   :style="st.gate === 'pass' ? 'background:var(--green);color:#fff' : 'background:#FBEAE8;color:var(--red)'">
-                  {{ st.step === 1 ? '全文诊断完成' : (st.gate === 'pass' ? '通过 ✓' : '打回重写') }}
+                  {{ st.step === 1 ? '🔍 全文诊断完成' : (st.gate === 'pass' ? '✅ 通过，闯关成功' : '🔁 打回，再改一版') }}
                 </span>
                 <span class="text-[11px] text-[var(--ink-faint)]">环节 {{ st.step }} · {{ stepDefs[st.step - 1] }}</span>
               </div>
@@ -186,7 +212,7 @@
 
             <div v-if="streamText" class="rounded-2xl border-2 p-4" style="border-color:var(--accent);background:var(--accent-soft)">
               <p class="text-[12px] font-medium text-[var(--accent)] flex items-center gap-1.5">
-                <span class="spin inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent"></span>教练正在诊断…
+                <span class="wiggle inline-block">🧐</span> 教练正在诊断…
                 <button @click="stopSubmit" class="ml-auto rounded-full border border-current px-2 py-0.5 text-[10px] hover:bg-white/50">停止</button>
               </p>
               <div class="prose-reply mt-2 text-[13.5px]" v-html="renderMd(streamText)"></div>
@@ -195,7 +221,7 @@
             <div v-if="run.status === 'active'" class="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4">
               <p class="text-[13px] font-medium flex items-center gap-1.5">
                 <i data-lucide="flag" class="h-3.5 w-3.5 text-[var(--accent)]"></i>
-                环节 {{ run.step }} · {{ stepDefs[run.step - 1] }}
+                🎯 环节 {{ run.step }} · {{ stepDefs[run.step - 1] }}
               </p>
               <p class="mt-1 text-[12px] leading-6 text-[var(--ink-faint)]">{{ currentHint }}</p>
               <p v-if="currentCriteria" class="mt-1 text-[12px] leading-6" style="color:var(--teal)">
@@ -214,7 +240,7 @@
                   <span v-if="busy" class="spin inline-block h-3 w-3 rounded-full border-2 border-white border-t-transparent"></span>
                   提交 · 等待教练诊断
                 </button>
-                <span class="text-[11px] text-[var(--ink-faint)]">判“不过”会打回重写，改到过为止</span>
+                <span class="text-[11px] text-[var(--ink-faint)]">💪 判“不过”会打回重写，改到过为止</span>
               </div>
             </div>
 
@@ -303,7 +329,24 @@ createApp({
       const cur = steps.value.filter(s2 => s2.step === run.value.step);
       return cur.length ? cur[cur.length - 1].gate : '';
     });
-        const currentHint = computed(() => {
+        const progressPct = computed(() => {
+      if (!run.value || !stepDefs.value.length) return 0;
+      if (run.value.status === 'done') return 100;
+      return Math.round(((run.value.step - 1) / stepDefs.value.length) * 100);
+    });
+    function celebrate() {
+      const icons = ['🎉','⭐','🎊','✨','🏅','🎈'];
+      for (let i = 0; i < 14; i++) {
+        const el = document.createElement('div');
+        el.className = 'confetti';
+        el.textContent = icons[i % icons.length];
+        el.style.left = (8 + Math.random() * 84) + 'vw';
+        el.style.animationDelay = (Math.random() * 0.6) + 's';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 3200);
+      }
+    }
+    const currentHint = computed(() => {
       const st = run.value && run.value.step;
       const m = meta.value.find(x => x.step === st);
       return (m && m.submit_hint) || (st ? (hints[st] || '') : '');
@@ -382,7 +425,7 @@ createApp({
             let ev;
             try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
             if (ev.type === 'delta') streamText.value += ev.text;
-            else if (ev.type === 'done') { streamText.value = ''; draft.value = ''; await load(); if (queuedAsk) { const q = queuedAsk; queuedAsk = ''; await sendAsk(q); } }
+            else if (ev.type === 'done') { streamText.value = ''; draft.value = ''; if (ev.payload && ev.payload.gate === 'pass') celebrate(); await load(); if (queuedAsk) { const q = queuedAsk; queuedAsk = ''; await sendAsk(q); } }
             else if (ev.type === 'error') {
               streamText.value = '';
               if (String(ev.error || '').includes('已停止')) { await load(); }
@@ -447,7 +490,7 @@ createApp({
     onMounted(load);
     function renderMd(t) { return window.renderMarkdown(t); }
     return { stepDefs, loading, busy, tasks, run, task, steps, rulesVersion, isAdmin, draft, tTitle, tPrompt, tGuide, tGrade, taskMsg, showDraft, showRestart, showDoc, lastGate, newRound, taskFold, renderMd, streamText, ask, busyAsk, currentCriteria, scrollBottom, sidebarW, startResize, sidebarOpen, toast, showToast,
-      currentHint, stepDone, stepMark, printReport, load, enter, submit, createTask, stopSubmit, genre, switchGenre };
+      currentHint, stepDone, stepMark, printReport, load, enter, submit, createTask, stopSubmit, genre, switchGenre, progressPct, celebrate };
   }
 }).mount('#app');
 lucide.createIcons();
