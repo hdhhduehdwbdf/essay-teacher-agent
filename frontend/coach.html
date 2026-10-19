@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="h-full">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>作文打磨</title>
+<link rel="preload" href="/vendor/MaShanZheng-subset.woff2" as="font" type="font/woff2" crossorigin>
+<script src="/vendor/tailwind.js"></script>
+<script src="/vendor/vue.global.prod.js"></script>
+<script src="/vendor/lucide.min.js"></script>
+<script src="/vendor/md.js"></script>
+<style>
+  @font-face { font-family: "Ma Shan Zheng"; src: url("/vendor/MaShanZheng-subset.woff2") format("woff2"); font-display: swap; }
+  :root { --bg:#FFFBF4; --ink:#2D2A26; --ink-soft:#8A8478; --ink-faint:#B8B0A3; --line:#EBE3D6; --accent:#E8674A; --card:#FFF; --teal:#4A9B8E; --teal-soft:#E8F5F0; --red:#C0453A; --green:#3F7A52; }
+  body { font-family:'PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei UI',system-ui,sans-serif; background:var(--bg); color:var(--ink); letter-spacing:.01em; }
+  .serif { font-family:'Noto Serif SC','Songti SC',serif; }
+  .fade-in { animation:fade .5s ease both; }
+  @keyframes fade { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+  .btn-pop { transition:transform .15s; }
+  .btn-pop:hover { transform:translateY(-1px); }
+  .spin { animation:spin 1s linear infinite; }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  ::-webkit-scrollbar { width:5px; }
+  ::-webkit-scrollbar-thumb { background:var(--line); border-radius:5px; }
+  .prose-reply { line-height:1.85; }
+  .prose-reply h1 { font-size:1.05em; font-weight:600; margin:.6em 0 .3em; }
+  .prose-reply h2 { font-size:1em; font-weight:600; margin:.6em 0 .3em; }
+  .prose-reply h3 { font-size:.95em; font-weight:600; margin:.5em 0 .3em; }
+  .prose-reply strong { font-weight:600; }
+  .prose-reply ul { padding-left:1.4em; margin:.4em 0; }
+  .prose-reply li { margin:.2em 0; list-style:disc; }
+  .prose-reply blockquote { border-left:3px solid var(--line); padding-left:.8em; margin:.6em 0; color:var(--ink-soft); }
+</style>
+</head>
+<body class="h-full antialiased overflow-hidden">
+<div id="app" class="flex h-full">
+
+  <div v-if="sidebarOpen" class="fixed inset-0 bg-black/30 z-30 lg:hidden" @click="sidebarOpen = false"></div>
+  <aside class="shrink-0 border-r border-[var(--line)] flex flex-col overflow-hidden fixed lg:static inset-y-0 left-0 z-40 bg-[var(--bg)] transition-transform duration-200" :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'" :style="{ width: sidebarW + 'px' }">
+    <div class="h-[52px] shrink-0 px-3 flex items-center justify-between border-b border-[var(--line)]">
+      <p class="serif text-sm font-semibold flex items-center gap-1.5"><i data-lucide="pen-line" class="h-3.5 w-3.5 text-[var(--accent)]"></i>作文打磨</p>
+    </div>
+    <div class="shrink-0 border-b border-[var(--line)] px-3 py-2 flex gap-1.5">
+      <button @click="switchGenre('议论文')" :disabled="busy" class="flex-1 rounded-lg px-2 py-1.5 text-xs border transition"
+        :class="genre === '议论文' ? 'border-[var(--accent)] text-[var(--accent)] font-medium' : 'border-[var(--line)] text-[var(--ink-soft)] hover:text-[var(--ink)]'">议论文</button>
+      <button @click="switchGenre('记叙文')" :disabled="busy" class="flex-1 rounded-lg px-2 py-1.5 text-xs border transition"
+        :class="genre === '记叙文' ? 'border-[var(--teal)] text-[var(--teal)] font-medium' : 'border-[var(--line)] text-[var(--ink-soft)] hover:text-[var(--ink)]'">记叙文</button>
+    </div>
+    <div v-if="task" class="shrink-0 border-b border-[var(--line)] px-3 py-3">
+      <div class="rounded-xl border border-[var(--line)] bg-[var(--card)] p-3">
+        <div class="flex items-center gap-2">
+          <p class="text-[12.5px] font-medium min-w-0 truncate flex-1" :title="task.title">{{ task.title }}</p>
+          <span class="shrink-0 text-[10px]" :class="run.status === 'done' ? 'text-[var(--green)]' : 'text-[var(--teal)]'">{{ run.status === 'done' ? '已结课' : '进行中' }}</span>
+        </div>
+        <p class="mt-1.5 text-[11.5px] leading-5 text-[var(--ink-soft)]" :class="taskFold ? '' : 'line-clamp-2'" @click="taskFold = !taskFold" style="cursor:pointer" title="点击展开/收起">{{ task.prompt }}</p>
+        <div class="mt-2.5 flex items-center gap-1.5">
+          <button @click="showDraft = true" class="btn-pop inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--ink-soft)] hover:text-[var(--ink)]">
+            <svg class="h-3.5 w-3.5 shrink-0" style="color:var(--ink)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>主稿
+          </button>
+          <button @click="showRestart = true" :disabled="busy" class="btn-pop inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--ink-soft)] hover:text-[var(--ink)]" title="放弃当前进度，从环节1重新开始">
+            <svg class="h-3.5 w-3.5 shrink-0" style="color:var(--ink)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>重新开始
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="flex-1 overflow-y-auto px-2 py-3 space-y-1">
+      <div v-for="(st, i) in stepDefs" :key="i" class="rounded-lg px-3 py-2 border transition"
+        :class="run && run.step >= i + 1 ? 'border-[var(--line)] bg-[var(--card)]' : 'border-transparent'">
+        <span class="flex items-center gap-2">
+          <span class="w-4 h-4 shrink-0 rounded-full flex items-center justify-center text-[9px]"
+            :class="stepDone(i + 1) ? 'text-white' : 'border border-[var(--line)] text-[var(--ink-faint)]'"
+            :style="stepDone(i + 1) ? 'background:var(--green)' : ''">{{ stepMark(i + 1) }}</span>
+          <span class="text-xs" :class="run && run.step === i + 1 && run.status === 'active' ? 'text-[var(--accent)] font-medium' : 'text-[var(--ink-soft)]'">{{ st }}</span>
+        </span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="hidden lg:block shrink-0 w-1 cursor-col-resize bg-transparent hover:bg-[var(--line)] transition-colors select-none" @mousedown="startResize"></div>
+
+  <main class="flex-1 min-w-0 flex flex-col">
+    <header class="shrink-0 border-b border-[var(--line)]/60 bg-[var(--bg)]/90 backdrop-blur-sm">
+      <div class="mx-auto w-full max-w-2xl px-6 py-3 flex items-center gap-2.5">
+        <button class="lg:hidden shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-full border border-[var(--line)]" @click="sidebarOpen = true" title="打开流程栏">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+        </button>
+        <span class="flex items-center justify-center h-8 w-8 rounded-full shrink-0" style="background:linear-gradient(135deg,#E8674A,#E8874A)">
+          <img src="/vendor/pen-tool.svg" alt="老师" class="h-4 w-4">
+        </span>
+        <div class="min-w-0">
+          <p class="serif text-lg font-semibold leading-tight">作文打磨</p>
+          <p class="text-[10px] text-[var(--ink-faint)] truncate">{{ task ? task.title : '七环节 · 逐环节诊断、修改、验收' }}</p>
+        </div>
+        <a href="/" class="ml-auto shrink-0 inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--card)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:text-[var(--ink)] hover:border-[var(--accent)]/40">
+          <i data-lucide="home" class="h-3.5 w-3.5"></i>回到主页面
+        </a>
+      </div>
+    </header>
+
+    <div class="min-h-0 flex-1 overflow-y-auto">
+      <div :class="run && run.status === 'done' ? 'mx-auto w-full max-w-5xl px-6 py-8 space-y-5' : 'mx-auto w-full max-w-2xl px-6 py-8 space-y-5'">
+        <div v-if="loading" class="text-xs text-[var(--ink-faint)]">加载中…</div>
+        <template v-else>
+          <div v-if="!run" class="fade-in">
+            <p class="serif text-2xl font-semibold leading-relaxed">你的文章，我们<span style="color:var(--accent)">一环一环</span>磨</p>
+            <p class="mt-3 text-sm leading-7 text-[var(--ink-soft)]">交一稿，我做整体诊断、建主稿；然后带你走七个环节，每个环节改到过关才往下走。</p>
+
+            <div v-if="tasks.length" class="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4">
+              <p class="text-[13px] font-medium mb-2">本次作文题目</p>
+              <p class="text-sm font-medium">{{ tasks[0].title }}<span v-if="tasks[0].grade" class="ml-2 text-[11px] text-[var(--ink-faint)]">{{ tasks[0].grade }}</span></p>
+              <p class="mt-1 text-[12.5px] leading-6 text-[var(--ink-soft)] whitespace-pre-wrap">{{ tasks[0].prompt }}</p>
+              <p v-if="tasks[0].guide" class="mt-2 text-[12px] leading-6 text-[var(--ink-faint)] whitespace-pre-wrap">{{ tasks[0].guide }}</p>
+              <button @click="enter" :disabled="busy"
+                class="btn-pop mt-4 inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-white"
+                style="background:var(--accent)">
+                <span v-if="busy" class="spin inline-block h-3 w-3 rounded-full border-2 border-white border-t-transparent"></span>
+                开始打磨
+              </button>
+            </div>
+
+            <div class="mt-8 rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4">
+              <p class="text-[13px] font-medium flex items-center gap-1.5"><i data-lucide="megaphone" class="h-3.5 w-3.5 text-[var(--teal)]"></i>自设题目开练（学段可选）</p>
+              <input v-model="tTitle" placeholder="题目，如：以“磨”为题写一篇议论文"
+                class="mt-3 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm">
+              <textarea v-model="tPrompt" rows="4" placeholder="题目材料与要求（完整粘贴作文题）"
+                class="mt-2 w-full resize-none rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-[13px] leading-6"></textarea>
+              <div class="mt-2 flex items-center gap-2">
+                <select v-model="tGrade" class="rounded-lg border border-[var(--line)] bg-transparent px-2 py-2 text-[13px]">
+                  <option value="">学段：不限</option><option>初一</option><option>初二</option><option>初三</option>
+                  <option>高一</option><option>高二</option><option>高三</option>
+                </select>
+                <input v-model="tGuide" placeholder="引导语（可选）" class="flex-1 rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-[13px]">
+              </div>
+              <button @click="createTask" :disabled="!tTitle || !tPrompt || busy"
+                class="btn-pop mt-3 rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-40" style="background:var(--teal)">发布题目</button>
+              <span v-if="taskMsg" class="ml-2 text-[11px]">{{ taskMsg }}</span>
+            </div>
+          </div>
+
+          <template v-else>
+            <span v-if="lastGate === 'retry'" class="block rounded-full px-3 py-1.5 text-[11px] text-center" style="background:#FFF3E0;color:#B7791F">
+              上一轮被打回：按处方修改后，在下面重新提交本环节
+            </span>
+
+            <div v-if="run.status === 'done'" class="rounded-xl border border-[var(--line)] bg-[var(--card)] px-4 py-3 flex items-center gap-3 flex-wrap">
+              <button @click="showDoc = true" class="btn-pop inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-white" style="background:var(--teal)">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+                Document Editor
+              </button>
+              <span class="text-[11px] text-[var(--ink-faint)]">打开右侧结课双报告</span>
+              <div class="ml-auto flex items-center gap-2">
+                <button @click="printReport" class="btn-pop inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] px-3.5 py-1.5 text-xs text-[var(--ink-soft)]">
+                  <svg class="h-3.5 w-3.5 shrink-0" style="color:var(--ink)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>打印留存
+                </button>
+                <button @click="showRestart = true" :disabled="busy" class="btn-pop inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] px-3.5 py-1.5 text-xs text-[var(--ink-soft)] hover:text-[var(--ink)]" title="从环节1开始新一轮">
+                  <svg class="h-3.5 w-3.5 shrink-0" style="color:var(--ink)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>重新开始一轮
+                </button>
+              </div>
+            </div>
+
+            <div :class="run.status === 'done' ? 'flex flex-col lg:flex-row gap-5 items-start' : ''">
+            <div class="flex-1 min-w-0 space-y-5">
+            <template v-for="st in steps" :key="st.id">
+            <div v-if="st.gate === 'ask'" class="space-y-2">
+              <div class="flex justify-end">
+                <div class="max-w-[80%] rounded-2xl px-3.5 py-2 text-[13px] leading-6" style="background:linear-gradient(135deg,#FFE8D6,#FFD9C0)">{{ st.submit_text }}</div>
+              </div>
+              <div class="rounded-2xl border border-[var(--line)] bg-[var(--card)] px-3.5 py-2.5">
+                <div class="prose-reply text-[13px]" v-html="renderMd(st.reply)"></div>
+              </div>
+            </div>
+            <div v-else class="rounded-2xl border p-4"
+              :class="st.gate === 'pass' ? 'border-[var(--teal)]/40' : 'border-[var(--accent)]/50'">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                  :style="st.gate === 'pass' ? 'background:var(--green);color:#fff' : 'background:#FBEAE8;color:var(--red)'">
+                  {{ st.step === 1 ? '全文诊断完成' : (st.gate === 'pass' ? '通过 ✓' : '打回重写') }}
+                </span>
+                <span class="text-[11px] text-[var(--ink-faint)]">环节 {{ st.step }} · {{ stepDefs[st.step - 1] }}</span>
+              </div>
+              <div class="prose-reply mt-2 text-[13.5px]" v-html="renderMd(st.reply)"></div>
+            </div>
+
+            </template>
+
+
+            <div v-if="streamText" class="rounded-2xl border-2 p-4" style="border-color:var(--accent);background:var(--accent-soft)">
+              <p class="text-[12px] font-medium text-[var(--accent)] flex items-center gap-1.5">
+                <span class="spin inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent"></span>教练正在诊断…
+                <button @click="stopSubmit" class="ml-auto rounded-full border border-current px-2 py-0.5 text-[10px] hover:bg-white/50">停止</button>
+              </p>
+              <div class="prose-reply mt-2 text-[13.5px]" v-html="renderMd(streamText)"></div>
+            </div>
+
+            <div v-if="run.status === 'active'" class="rounded-2xl border border-[var(--line)] bg-[var(--card)] p-4">
+              <p class="text-[13px] font-medium flex items-center gap-1.5">
+                <i data-lucide="flag" class="h-3.5 w-3.5 text-[var(--accent)]"></i>
+                环节 {{ run.step }} · {{ stepDefs[run.step - 1] }}
+              </p>
+              <p class="mt-1 text-[12px] leading-6 text-[var(--ink-faint)]">{{ currentHint }}</p>
+              <p v-if="currentCriteria" class="mt-1 text-[12px] leading-6" style="color:var(--teal)">
+                <i data-lucide="check-circle" class="inline h-3 w-3 align-[-2px]"></i> 过闸标准：{{ currentCriteria }}
+              </p>
+              <textarea v-model="draft" rows="8" @keydown.ctrl.enter.prevent="submit" :placeholder="run.step === 1 ? '把你的作文初稿全文粘贴到这里（含标题）…' : '提交本环节内容；或直接输入你的疑问点【提问】'"
+                class="mt-2 w-full resize-y rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-[13.5px] leading-7"></textarea>
+              <div class="mt-2 flex items-center gap-2 flex-wrap">
+                <button @click="ask" :disabled="!draft.trim()"
+                  class="btn-pop inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--ink-soft)] hover:text-[var(--ink)]">
+                  <span v-if="busyAsk" class="spin inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent"></span>
+                  <span v-if="busy">诊断后提问</span><span v-else>先提问</span>
+                </button>
+                <button @click="submit" :disabled="!draft.trim() || busy"
+                  class="btn-pop inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-40" style="background:var(--accent)">
+                  <span v-if="busy" class="spin inline-block h-3 w-3 rounded-full border-2 border-white border-t-transparent"></span>
+                  提交 · 等待教练诊断
+                </button>
+                <span class="text-[11px] text-[var(--ink-faint)]">判“不过”会打回重写，改到过为止</span>
+              </div>
+            </div>
+
+</div>
+
+<aside v-if="run.status === 'done' && showDoc" class="shrink-0 w-full lg:w-[46%] lg:sticky lg:top-2">
+              <div class="flex items-center justify-between border-b border-[var(--line)] pb-2 px-1">
+                <p class="serif text-[14px] font-semibold">《修改前后对照总报告》 · 《修改总结与进步对照报告》</p>
+                <button @click="showDoc = false" class="shrink-0 text-[11px] text-[var(--ink-faint)] hover:text-[var(--ink)]">收起 ✕</button>
+              </div>
+              <div class="max-h-[calc(100vh-220px)] overflow-y-auto px-2 py-4">
+                <div class="prose-reply text-[13.5px]" v-html="renderMd(run.report || '报告生成中，稍后刷新…')"></div>
+              </div>
+            </aside>
+            </div>
+          </template>
+        </template>
+      </div>
+    </div>
+
+    <div v-if="showDraft && run" class="fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="showDraft = false">
+      <div class="absolute inset-0 bg-black/30"></div>
+      <div class="relative z-10 w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-xl">
+        <div class="shrink-0 flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
+          <p class="text-[13px] font-medium flex items-center gap-1.5"><i data-lucide="scroll-text" class="h-4 w-4 text-[var(--accent)]"></i>主稿（一稿存档）</p>
+          <button @click="showDraft = false" class="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--ink-soft)] hover:text-[var(--ink)] hover:border-[var(--accent)]/40">
+            关闭 <i data-lucide="x" class="h-3 w-3"></i>
+          </button>
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <p class="text-[13.5px] leading-7 whitespace-pre-wrap">{{ run.draft || '（尚未存档：环节1通过后，你的初稿全文会存到这里。）' }}</p>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showRestart && run" class="fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="showRestart = false">
+      <div class="absolute inset-0 bg-black/30"></div>
+      <div class="relative z-10 w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-xl p-5">
+        <p class="serif text-base font-semibold">重新开始？</p>
+        <p class="mt-2 text-[13px] leading-6 text-[var(--ink-soft)]">当前这一轮的进度会被放到一边，从环节1重新开始。这个操作不能撤销。</p>
+        <div class="mt-4 flex justify-end gap-2">
+          <button @click="showRestart = false" class="btn-pop rounded-full border border-[var(--line)] px-3.5 py-1.5 text-xs text-[var(--ink-soft)] hover:text-[var(--ink)]">再想想</button>
+          <button @click="newRound" :disabled="busy" class="btn-pop rounded-full px-4 py-1.5 text-xs font-medium text-white" style="background:var(--accent)">
+            <span v-if="busy" class="spin inline-block h-3 w-3 rounded-full border-2 border-white border-t-transparent"></span>
+            确认重新开始
+          </button>
+        </div>
+      </div>
+    </div>
+    <div v-if="toast.show" class="fixed top-4 right-4 z-[60] rounded-full px-4 py-2 text-xs text-white shadow-lg" style="background:var(--ink)">{{ toast.msg }}</div>
+  </main>
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, nextTick } = Vue;
+createApp({
+  setup() {
+    const meta = ref([]);
+    const genre = ref('议论文');
+    const stepDefs = computed(() => {
+      const names = (meta.value || []).map(m => m.name);
+      return names.length ? names : ['交一稿 · 全文诊断', '审题', '分论点关系', '分论点表述', '分论点阐释', '叙例与析例', '总结句与结课'];
+    });
+    const hints = {
+      1: '把你的作文初稿全文粘贴发我（含标题）。我会做整体诊断并建立主稿。',
+      2: '用150字以内说清：这道题的关键词是什么、命题人想让你谈什么、你准备怎么扣住它。',
+      3: '列出你的分论点（2-4个），每个一句话，并说明它们之间是什么关系、为什么这样排。',
+      4: '把每个分论点重新表述一遍：具体、可论证、点明判断，不许喊口号。',
+      5: '把每个分论点下面的阐释段落发我（一段一段标清楚）。',
+      6: '发你文中用到的例子段落，每个例子标注它服务哪个分论点。',
+      7: '发你的总结段（结尾段）。'
+    };
+    const loading = ref(true), busy = ref(false);
+    const tasks = ref([]), run = ref(null), task = ref(null), steps = ref([]);
+    const rulesVersion = ref(''), isAdmin = ref(false);
+    const draft = ref(''), tTitle = ref(''), tPrompt = ref(''), tGuide = ref(''), tGrade = ref('');
+    const taskMsg = ref(''), showDraft = ref(false), showRestart = ref(false), showDoc = ref(false), taskFold = ref(false), busyAsk = ref(false), scroller = ref(null);
+    function scrollBottom() {
+      nextTick(() => {
+        const el = document.querySelector('main > div.min-h-0');
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    }
+    const lastGate = computed(() => {
+      if (!run.value || !steps.value.length) return '';
+      const cur = steps.value.filter(s2 => s2.step === run.value.step);
+      return cur.length ? cur[cur.length - 1].gate : '';
+    });
+        const currentHint = computed(() => {
+      const st = run.value && run.value.step;
+      const m = meta.value.find(x => x.step === st);
+      return (m && m.submit_hint) || (st ? (hints[st] || '') : '');
+    });
+    const currentCriteria = computed(() => {
+      const st = run.value && run.value.step;
+      const m = meta.value.find(x => x.step === st);
+      return (m && m.pass_criteria) || '';
+    });
+    const streamText = ref('');
+    const sidebarOpen = ref(false);
+    let savedW = 256; try { savedW = Number(localStorage.getItem('coach_sidebar_w')) || 256; } catch (e) {}
+    const sidebarW = ref(Math.min(480, Math.max(180, savedW)));
+    const toast = ref({ show: false, msg: '' });
+    let toastTimer = null;
+    function showToast(msg) {
+      toast.value = { show: true, msg };
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toast.value = { show: false, msg: '' }; }, 2500);
+    }
+    function startResize(e) {
+      e.preventDefault();
+      const startX = e.clientX, startW = sidebarW.value;
+      const move = (ev) => { sidebarW.value = Math.min(480, Math.max(180, startW + ev.clientX - startX)); };
+      const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); try { localStorage.setItem('coach_sidebar_w', String(sidebarW.value)); } catch (e) {} };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+    }
+    function stepDone(n) { return run.value && (run.value.step > n || run.value.status === 'done'); }
+    function stepMark(n) { return stepDone(n) ? '✓' : String(n); }
+    function printReport() { window.print(); }
+    async function load() {
+      loading.value = true;
+      try {
+        const d = await fetch('/api/coach/state').then(r => r.json());
+        tasks.value = d.tasks || [];
+        run.value = d.run || null;
+        task.value = d.task || null;
+        steps.value = d.steps || [];
+        rulesVersion.value = d.rules_version || '';
+        meta.value = d.meta || [];
+        genre.value = (run.value && run.value.genre) || '议论文';
+        const me = await fetch('/api/me').then(r => r.json()).catch(() => ({}));
+        isAdmin.value = me.role === 'admin' || (d.me && d.me.role === 'admin');
+        await nextTick();
+        if (window.lucide) lucide.createIcons();
+        scrollBottom();
+      } finally { loading.value = false; }
+    }
+    async function enter() {
+      busy.value = true;
+      try {
+        const d = await fetch('/api/coach/enter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+        if (d.ok) await load(); else showToast(d.error || '开始失败');
+      } finally { busy.value = false; }
+    }
+    async function submit() {
+      if (!draft.value.trim() || busy.value) return;
+      busy.value = true;
+      streamText.value = '';
+      try {
+        const res = await fetch('/api/coach/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ run_id: run.value.id, text: draft.value }) });
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split('\n\n');
+          buf = parts.pop();
+          for (const p of parts) {
+            const line = p.split('\n').find(l => l.startsWith('data: '));
+            if (!line) continue;
+            let ev;
+            try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
+            if (ev.type === 'delta') streamText.value += ev.text;
+            else if (ev.type === 'done') { streamText.value = ''; draft.value = ''; await load(); if (queuedAsk) { const q = queuedAsk; queuedAsk = ''; await sendAsk(q); } }
+            else if (ev.type === 'error') {
+              streamText.value = '';
+              if (String(ev.error || '').includes('已停止')) { await load(); }
+              else showToast(ev.error || '诊断失败');
+            }
+          }
+        }
+      } catch (e) {
+        const prevCount = steps.value.length;
+        await load().catch(() => {});
+        if (steps.value.length > prevCount) showToast('刚才的诊断其实已完成，下方已有结果');
+        else showToast('连接中断，内容还在输入框，可直接重发');
+      }
+      finally { busy.value = false; streamText.value = ''; }
+    }
+    let queuedAsk = '';
+    async function ask() {
+      if (busy.value) { queuedAsk = draft.value.trim(); draft.value = ''; return; }
+      await sendAsk(draft.value.trim());
+    }
+    async function sendAsk(q) {
+      if (!q || busyAsk.value) return;
+      busyAsk.value = true;
+      try {
+        const d = await fetch('/api/coach/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ run_id: run.value.id, question: q }) }).then(r => r.json());
+        if (d.ok) { draft.value = ''; await load(); } else { draft.value = q; showToast(d.error || '提问失败'); }
+      } finally { busyAsk.value = false; }
+    }
+    async function newRound() {
+      busy.value = true;
+      try {
+        const d = await fetch('/api/coach/enter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+        if (d.ok) { showRestart.value = false; showDraft.value = false; showDoc.value = false; await load(); } else showToast(d.error || '开新一轮失败');
+      } finally { busy.value = false; }
+    }
+    async function switchGenre(g) {
+      if (g === genre.value && run.value && run.value.status === 'active') return;
+      if (run.value && run.value.status === 'active') {
+        showToast('切换体裁会开新一轮，当前进度保留在原体裁里');
+      }
+      busy.value = true;
+      try {
+        const d = await fetch('/api/coach/enter', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ genre: g }) }).then(r => r.json());
+        if (d.ok) { showRestart.value = false; showDraft.value = false; showDoc.value = false; await load(); }
+        else showToast(d.error || '切换失败');
+      } finally { busy.value = false; }
+    }
+    async function stopSubmit() {
+      try { await fetch('/api/coach/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ run_id: run.value.id }) }); } catch(e) {}
+    }
+    async function createTask() {
+      busy.value = true; taskMsg.value = '';
+      try {
+        const d = await fetch('/api/coach/task', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: tTitle.value, prompt: tPrompt.value, guide: tGuide.value, grade: tGrade.value }) }).then(r => r.json());
+        if (d.ok) { taskMsg.value = '发布成功'; tTitle.value = ''; tPrompt.value = ''; tGuide.value = ''; await load(); }
+        else taskMsg.value = d.error || '发布失败';
+      } finally { busy.value = false; }
+    }
+    onMounted(load);
+    function renderMd(t) { return window.renderMarkdown(t); }
+    return { stepDefs, loading, busy, tasks, run, task, steps, rulesVersion, isAdmin, draft, tTitle, tPrompt, tGuide, tGrade, taskMsg, showDraft, showRestart, showDoc, lastGate, newRound, taskFold, renderMd, streamText, ask, busyAsk, currentCriteria, scrollBottom, sidebarW, startResize, sidebarOpen, toast, showToast,
+      currentHint, stepDone, stepMark, printReport, load, enter, submit, createTask, stopSubmit, genre, switchGenre };
+  }
+}).mount('#app');
+lucide.createIcons();
+</script>
+</body>
+</html>

@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS weak_cards (
   id TEXT PRIMARY KEY, uid INTEGER, user TEXT, deck TEXT, point TEXT, type TEXT,
   evidence TEXT, session_ref TEXT, created TEXT, mastered INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_weak_cards_user ON weak_cards(user, deck);
+CREATE TABLE IF NOT EXISTS essay_tasks (
+  id TEXT PRIMARY KEY, uid INTEGER, user TEXT, title TEXT, prompt TEXT, guide TEXT, grade TEXT DEFAULT '',
+  created TEXT, active INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS essay_runs (
+  id TEXT PRIMARY KEY, uid INTEGER, user TEXT, task_id TEXT, code TEXT,
+  step INTEGER DEFAULT 1, status TEXT DEFAULT 'active', draft TEXT DEFAULT '',
+  genre TEXT DEFAULT '议论文', report TEXT DEFAULT '', created TEXT, updated TEXT);
+CREATE TABLE IF NOT EXISTS essay_steps (
+  id TEXT PRIMARY KEY, uid INTEGER, user TEXT, run_id TEXT, step INTEGER,
+  submit_text TEXT, diagnosis TEXT, gate TEXT, reply TEXT, created TEXT);
+CREATE INDEX IF NOT EXISTS idx_essay_runs_user ON essay_runs(user, status);
+CREATE INDEX IF NOT EXISTS idx_essay_steps_run ON essay_steps(run_id, step);
 """
 
 SCHEMA_PG = SCHEMA_SQLITE.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY")
@@ -115,6 +127,10 @@ def init_schema():
     else:
         conn.executescript(SCHEMA_SQLITE)
     _migrate_uid()
+    try:
+        conn.execute("ALTER TABLE essay_runs ADD COLUMN genre TEXT DEFAULT '议论文'")
+    except Exception:
+        pass
 
 
 # 老库补列：uid（稳定用户 id，数据隔离的正式依据）
@@ -163,6 +179,12 @@ def uid_of(username):
 
 def _uid(username):
     return uid_of(username)
+
+
+def _uw(user):
+    """(WHERE 片段, 参数)：uid 存在按 uid 隔离，否则退回按用户名匹配，避免写入后读不出来。"""
+    uid = _uid(user)
+    return ("uid=?", (uid,)) if uid is not None else ("user=?", (user,))
 
 
 def _next_uid():
@@ -215,7 +237,6 @@ def _ensure_session_title():
 
 _ensure_session_title()
 
-
 def session_save(user, sid, history):
     blob = json.dumps(history, ensure_ascii=False)
     now = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -226,12 +247,9 @@ def session_save(user, sid, history):
           (_uid(user), user, sid, now, blob, title))
 
 
-def session_rename(user, sid, title):
-    _exec("UPDATE sessions SET title=? WHERE uid=? AND sid=?", (title, _uid(user), sid))
-
-
 def session_load(user, sid):
-    rows = _rows("SELECT history FROM sessions WHERE uid=? AND sid=?", (_uid(user), sid))
+    w, p = _uw(user)
+    rows = _rows(f"SELECT history FROM sessions WHERE {w} AND sid=?", p + (sid,))
     if not rows:
         return []
     try:
@@ -241,7 +259,8 @@ def session_load(user, sid):
 
 
 def session_delete(user, sid):
-    _exec("DELETE FROM sessions WHERE uid=? AND sid=?", (_uid(user), sid))
+    w, p = _uw(user)
+    _exec(f"DELETE FROM sessions WHERE {w} AND sid=?", p + (sid,))
 
 
 def sessions_purge(user):
@@ -262,8 +281,13 @@ def kv_del_prefix(prefix):
         _exec("DELETE FROM kv WHERE key=?", (r["key"],))
 
 
+def session_rename(user, sid, title):
+    _exec("UPDATE sessions SET title=? WHERE uid=? AND sid=?", (title, _uid(user), sid))
+
+
 def sessions_of(user):
-    return _rows("SELECT sid AS id, user, uid, updated, history, title FROM sessions WHERE uid=? ORDER BY updated DESC", (_uid(user),))
+    w, p = _uw(user)
+    return _rows(f"SELECT sid AS id, user, uid, updated, history, title FROM sessions WHERE {w} ORDER BY updated DESC", p)
 
 
 def sessions_all():
@@ -275,7 +299,8 @@ def sessions_all():
 def memory_all(user=None):
     if user is None:
         return _rows("SELECT * FROM memories ORDER BY last_seen_at DESC")
-    return _rows("SELECT * FROM memories WHERE uid=? ORDER BY last_seen_at DESC", (_uid(user),))
+    w, p = _uw(user)
+    return _rows(f"SELECT * FROM memories WHERE {w} ORDER BY last_seen_at DESC", p)
 
 
 def memory_put(item):
@@ -295,20 +320,25 @@ def memory_delete(mid):
 def memory_clear(user=None):
     if user is None:
         _exec("DELETE FROM memories")
+        return
     else:
-        _exec("DELETE FROM memories WHERE uid=?", (_uid(user),))
+        w, p = _uw(user)
+    _exec(f"DELETE FROM memories WHERE {w}", p)
+    _exec(f"DELETE FROM memories WHERE {w}", p)
 
 
 # ---------- 配额 ----------
 
 def usage_count(day, user):
-    rows = _rows("SELECT n FROM usage WHERE day=? AND uid=?", (day, _uid(user)))
+    w, p = _uw(user)
+    rows = _rows(f"SELECT n FROM usage WHERE day=? AND {w}", (day,) + p)
     return rows[0]["n"] if rows else 0
 
 
 def usage_add(day, user, delta=1):
     n = usage_count(day, user) + delta
-    _exec("DELETE FROM usage WHERE day=? AND uid=?", (day, _uid(user)))
+    w, p = _uw(user)
+    _exec(f"DELETE FROM usage WHERE day=? AND {w}", (day,) + p)
     _exec("INSERT INTO usage(day,uid,user,n) VALUES(?,?,?,?)", (day, _uid(user), user, n))
     return n
 
@@ -409,39 +439,58 @@ def job_cancel(job_id):
 
 # ---------- 薄弱点卡片（按用户隔离） ----------
 
+def _ensure_deck_color():
+    try:
+        _exec("ALTER TABLE weak_decks ADD COLUMN color TEXT DEFAULT ''")
+    except Exception:
+        pass
+
+
+_ensure_deck_color()
+
+
 def decks_list(user):
-    return _rows("SELECT id, name, created FROM weak_decks WHERE uid=? ORDER BY created", (_uid(user),))
+    w, p = _uw(user)
+    return _rows(f"SELECT id, name, color, created FROM weak_decks WHERE {w} ORDER BY created", p)
 
 
 def deck_get(user, deck_id):
-    rows = _rows("SELECT id, name FROM weak_decks WHERE uid=? AND id=?", (_uid(user), deck_id))
+    w, p = _uw(user)
+    rows = _rows(f"SELECT id, name, color FROM weak_decks WHERE {w} AND id=?", p + (deck_id,))
     return rows[0] if rows else None
 
 
-def deck_create(user, name):
+def deck_create(user, name, color=""):
     deck_id = "d" + secrets_hex8() + time.strftime("%H%M%S")
-    _exec("INSERT INTO weak_decks(id,uid,user,name,created) VALUES(?,?,?,?,?)",
-          (deck_id, _uid(user), user, name, time.strftime("%Y-%m-%d %H:%M:%S")))
+    _exec("INSERT INTO weak_decks(id,uid,user,name,color,created) VALUES(?,?,?,?,?,?)",
+          (deck_id, _uid(user), user, name, color or "", time.strftime("%Y-%m-%d %H:%M:%S")))
     return deck_get(user, deck_id)
 
 
-def deck_rename(user, deck_id, name):
-    _exec("UPDATE weak_decks SET name=? WHERE uid=? AND id=?", (name, _uid(user), deck_id))
+def deck_rename(user, deck_id, name, color=None):
+    w, p = _uw(user)
+    if color is None:
+        _exec(f"UPDATE weak_decks SET name=? WHERE {w} AND id=?", (name,) + p + (deck_id,))
+    else:
+        _exec(f"UPDATE weak_decks SET name=?, color=? WHERE {w} AND id=?", (name, color) + p + (deck_id,))
 
 
 def deck_delete(user, deck_id):
-    _exec("DELETE FROM weak_cards WHERE uid=? AND deck=?", (_uid(user), deck_id))
-    _exec("DELETE FROM weak_decks WHERE uid=? AND id=?", (_uid(user), deck_id))
+    w, p = _uw(user)
+    _exec(f"UPDATE weak_cards SET deck='' WHERE {w} AND deck=?", p + (deck_id,))
+    _exec(f"DELETE FROM weak_decks WHERE {w} AND id=?", p + (deck_id,))
 
 
 def cards_list(user, deck=None):
+    w, p = _uw(user)
     if deck:
-        return _rows("SELECT * FROM weak_cards WHERE uid=? AND deck=? ORDER BY created DESC", (_uid(user), deck))
-    return _rows("SELECT * FROM weak_cards WHERE uid=? ORDER BY created DESC", (_uid(user),))
+        return _rows(f"SELECT * FROM weak_cards WHERE {w} AND deck=? ORDER BY created DESC", p + (deck,))
+    return _rows(f"SELECT * FROM weak_cards WHERE {w} ORDER BY created DESC", p)
 
 
 def card_get(user, card_id):
-    rows = _rows("SELECT * FROM weak_cards WHERE uid=? AND id=?", (_uid(user), card_id))
+    w, p = _uw(user)
+    rows = _rows(f"SELECT * FROM weak_cards WHERE {w} AND id=?", p + (card_id,))
     return rows[0] if rows else None
 
 
@@ -457,30 +506,35 @@ def card_update(user, card_id, point=None, ctype=None, evidence=None, deck=None)
     row = card_get(user, card_id)
     if not row:
         return None
-    _exec("UPDATE weak_cards SET point=?, type=?, evidence=?, deck=? WHERE uid=? AND id=?",
+    w, p = _uw(user)
+    _exec(f"UPDATE weak_cards SET point=?, type=?, evidence=?, deck=? WHERE {w} AND id=?",
           (point if point is not None else row["point"],
            ctype if ctype is not None else row["type"],
            evidence if evidence is not None else row["evidence"],
-           deck if deck is not None else row["deck"], user, card_id))
+           deck if deck is not None else row["deck"]) + p + (card_id,))
     return card_get(user, card_id)
 
 
 def card_toggle(user, card_id, mastered):
-    _exec("UPDATE weak_cards SET mastered=? WHERE uid=? AND id=?", (1 if mastered else 0, _uid(user), card_id))
+    w, p = _uw(user)
+    _exec(f"UPDATE weak_cards SET mastered=? WHERE {w} AND id=?", (1 if mastered else 0,) + p + (card_id,))
     return card_get(user, card_id)
 
 
 def card_hit(user, card_id):
-    _exec("UPDATE weak_cards SET hits=COALESCE(hits,1)+1, mastered=0 WHERE uid=? AND id=?", (_uid(user), card_id))
+    w, p = _uw(user)
+    _exec(f"UPDATE weak_cards SET hits=COALESCE(hits,1)+1, mastered=0 WHERE {w} AND id=?", p + (card_id,))
 
 
 def card_delete(user, card_id):
-    _exec("DELETE FROM weak_cards WHERE uid=? AND id=?", (_uid(user), card_id))
+    w, p = _uw(user)
+    _exec(f"DELETE FROM weak_cards WHERE {w} AND id=?", p + (card_id,))
 
 
 def cards_clear(user, mastered_only=False, deck=None):
-    sql = "DELETE FROM weak_cards WHERE uid=?"
-    args = [_uid(user)]
+    w, p = _uw(user)
+    sql = f"DELETE FROM weak_cards WHERE {w}"
+    args = list(p)
     if mastered_only:
         sql += " AND mastered=1"
     if deck:
@@ -495,3 +549,71 @@ def secrets_hex8():
 
 def job_events(job_id, after_id=0):
     return _rows("SELECT id, payload FROM job_events WHERE job_id=? AND id>? ORDER BY id", (job_id, after_id))
+
+
+
+# ---------- 作文打磨（七环节陪练） ----------
+
+def _migrate_essay_tasks():
+    cols = [r["name"] for r in _rows("PRAGMA table_info(essay_tasks)")] if not _url() else         [r["column_name"] for r in _rows("SELECT column_name FROM information_schema.columns WHERE table_name='essay_tasks'")]
+    if "grade" not in cols:
+        _exec("ALTER TABLE essay_tasks ADD COLUMN grade TEXT DEFAULT ''")
+
+
+def essay_task_create(user, title, prompt, guide="", grade=""):
+    _migrate_essay_tasks()
+    tid = "t" + secrets_hex8() + time.strftime("%H%M%S")
+    _exec("INSERT INTO essay_tasks(id,uid,user,title,prompt,guide,grade,created,active) VALUES(?,?,?,?,?,?,?,?,1)",
+          (tid, _uid(user), user, title[:80], prompt, guide, grade[:16], time.strftime("%Y-%m-%d %H:%M:%S")))
+    return essay_task_get(user, tid)
+
+
+def essay_task_get(user, task_id):
+    rows = _rows("SELECT * FROM essay_tasks WHERE uid=? AND id=?", (_uid(user), task_id))
+    return rows[0] if rows else None
+
+
+def essay_tasks_list(user):
+    return _rows("SELECT * FROM essay_tasks WHERE uid=? AND active=1 ORDER BY created DESC", (_uid(user),))
+
+
+def essay_run_create(user, task_id, code, genre="议论文"):
+    rid = "r" + secrets_hex8() + time.strftime("%H%M%S")
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    _exec("INSERT INTO essay_runs(id,uid,user,task_id,code,genre,step,status,draft,created,updated) VALUES(?,?,?,?,?,?,1,'active','',?,?)",
+          (rid, _uid(user), user, task_id, code, genre, now, now))
+    return essay_run_get(user, rid)
+
+
+def essay_run_get(user, run_id):
+    rows = _rows("SELECT * FROM essay_runs WHERE uid=? AND id=?", (_uid(user), run_id))
+    return rows[0] if rows else None
+
+
+def essay_run_latest(user):
+    rows = _rows("SELECT * FROM essay_runs WHERE uid=? AND user=? ORDER BY created DESC LIMIT 1", (_uid(user), user))
+    return rows[0] if rows else None
+
+
+def essay_run_update(user, run_id, **kw):
+    cols, args = [], []
+    for k, v in kw.items():
+        cols.append(k + "=?")
+        args.append(v)
+    cols.append("updated=?")
+    args.append(time.strftime("%Y-%m-%d %H:%M:%S"))
+    args.extend([_uid(user), run_id])
+    _exec("UPDATE essay_runs SET " + ",".join(cols) + " WHERE uid=? AND id=?", tuple(args))
+    return essay_run_get(user, run_id)
+
+
+def essay_step_add(user, run_id, step, submit_text, diagnosis, gate, reply):
+    sid = "s" + secrets_hex8() + time.strftime("%H%M%S")
+    _exec("INSERT INTO essay_steps(id,uid,user,run_id,step,submit_text,diagnosis,gate,reply,created) VALUES(?,?,?,?,?,?,?,?,?,?)",
+          (sid, _uid(user), user, run_id, step, submit_text, diagnosis, gate, reply,
+           time.strftime("%Y-%m-%d %H:%M:%S")))
+    return sid
+
+
+def essay_steps_list(user, run_id):
+    return _rows("SELECT * FROM essay_steps WHERE uid=? AND run_id=? ORDER BY step, created", (_uid(user), run_id))
