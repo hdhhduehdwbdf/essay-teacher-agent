@@ -591,7 +591,8 @@ def essay_run_get(user, run_id):
 
 
 def essay_run_latest(user):
-    rows = _rows("SELECT * FROM essay_runs WHERE uid=? AND user=? ORDER BY created DESC LIMIT 1", (_uid(user), user))
+    order = "created DESC, rowid DESC" if backend_name() == "sqlite" else "created DESC, ctid DESC"
+    rows = _rows("SELECT * FROM essay_runs WHERE uid=? AND user=? ORDER BY " + order + " LIMIT 1", (_uid(user), user))
     return rows[0] if rows else None
 
 
