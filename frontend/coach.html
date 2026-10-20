@@ -227,7 +227,7 @@
               <p v-if="currentCriteria" class="mt-1 text-[12px] leading-6" style="color:var(--teal)">
                 <i data-lucide="check-circle" class="inline h-3 w-3 align-[-2px]"></i> 过闸标准：{{ currentCriteria }}
               </p>
-              <textarea v-model="draft" rows="8" @keydown.ctrl.enter.prevent="smartSend" :placeholder="run.step === 1 ? '把你的作文初稿全文粘贴到这里（含标题）…' : '直接粘贴环节内容即提交；想提问就写“为什么/怎么/…”或加【提问】前缀'"
+              <textarea v-model="draft" rows="8" @keydown.ctrl.enter.prevent="smartSend" :placeholder="run.step === 1 ? '把你的作文初稿全文粘贴到这里（含标题）…' : '直接粘贴环节内容即提交；想提问就直接说（如“这句怎么改”）；写文章内容则自动提交诊断；可加【提问】/【提交】前缀强制指定'"
                 class="mt-2 w-full resize-y rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-[13.5px] leading-7"></textarea>
               <div class="mt-2 flex items-center gap-2 flex-wrap">
                 <button @click="smartSend" :disabled="!draft.trim() || busy"
@@ -325,12 +325,8 @@ createApp({
       return cur.length ? cur[cur.length - 1].gate : '';
     });
         const sendMode = computed(() => {
-      const t = (draft.value || '').trim();
-      if (/^【提问】|^提问[:：]/.test(t)) return 'ask';
-      if (/^【提交】|^提交[:：]/.test(t)) return 'submit';
-      if (t.length <= 80 && /[？?]\s*$/.test(t)) return 'ask';
-      if (/^(为什么|怎么|如何|什么是|能不能|可不可以|需不需要|要不要|哪一|哪个|这句|这段|帮我看看这句|解释|说明一下)/.test(t) && t.length <= 80) return 'ask';
-      return 'submit';
+      if (!draft.value || !draft.value.trim()) return 'submit';
+      return detectMode(draft.value).mode;
     });
     const progressPct = computed(() => {
       if (!run.value || !stepDefs.value.length) return 0;
@@ -450,8 +446,11 @@ createApp({
       if (/^【提问】/.test(t)) return { mode: 'ask', text: t.replace(/^【提问】\s*/, '') };
       if (/^提问[:：]/.test(t)) return { mode: 'ask', text: t.replace(/^提问[:：]\s*/, '') };
       if (/^【提交】/.test(t) || /^提交[:：]/.test(t)) return { mode: 'submit', text: t.replace(/^(【提交】|提交[:：])\s*/, '') };
-      if (t.length <= 80 && /[？?]\s*$/.test(t)) return { mode: 'ask', text: t };
-      if (/^(为什么|怎么|如何|什么是|什么是|能不能|可不可以|需不需要|要不要|哪一|哪个|这句|这段|帮我看看这句|解释|说明一下)/.test(t) && t.length <= 80) return { mode: 'ask', text: t };
+      if (t.length > 120) return { mode: 'submit', text: t };
+      if (/(指什么|什么意思|怎么看|怎么改|怎么写|怎么回事|是什么)/.test(t)) return { mode: 'ask', text: t };
+      if (/^(开头|中间|结尾|第[一二三四五六七]段|例子|总结|立意|选材|事件[:：]|审题[:：])/.test(t)) return { mode: 'submit', text: t };
+      if (/(为什么|怎么|怎样|如何|什么|哪些|哪个|哪一|吗[？?。.！!]?\s*$|呢[？?。.！!]?\s*$|是否|能不能|可不可以|需不需要|要不要|会不会|是不是|帮我|解释|说明|讲讲|说说|举个例子)/.test(t)) return { mode: 'ask', text: t };
+      if (t.length <= 30) return { mode: 'ask', text: t };
       return { mode: 'submit', text: t };
     }
     async function smartSend() {
