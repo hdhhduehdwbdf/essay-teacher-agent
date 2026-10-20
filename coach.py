@@ -83,6 +83,18 @@ def _validate_submit(user, req):
     return None, run, task, step, steps
 
 
+
+def _rejudge_gate(task, run, step, text, first_reply):
+    """retry 时的二次复核：独立小调用，两次都说不过才真打回。"""
+    try:
+        import llm
+        msg = llm.chat(coach_rules.rejudge_messages(task, run, step, text),
+                       use_tools=False, max_tokens=100, temperature=0.1, timeout=45, retries=1)
+        g = _parse_gate((msg.get("content") or "").strip())
+        return g if g in ("pass", "retry") else "retry"
+    except Exception:
+        return "retry"
+
 def submit_stream(user, req, emit):
     """流式诊断版提交：诊断正文逐字 emit，结束后统一落库与闸门判定。"""
     err, run, task, step, steps = _validate_submit(user, req)
@@ -111,6 +123,8 @@ def submit_stream(user, req, emit):
     finally:
         _ACTIVE_RUNS.pop(user, None)
     gate = "pass" if step == 1 else _parse_gate(reply)
+    if gate == "retry":
+        gate = _rejudge_gate(task, run, step, text, reply)
     clean = _strip_gate(reply)
     total = coach_rules.total_steps(run)
     store.essay_step_add(user, run["id"], step, text[:8000], json.dumps(
@@ -157,6 +171,8 @@ def submit(user, req):
         return 502, {"error": "教练暂时离线（LLM 调用失败），请稍后重试：" + type(e).__name__}
 
     gate = "pass" if step == 1 else _parse_gate(reply)
+    if gate == "retry":
+        gate = _rejudge_gate(task, run, step, text, reply)
     clean = _strip_gate(reply)
     total = coach_rules.total_steps(run)
     store.essay_step_add(user, run_id, step, text[:8000], json.dumps(
