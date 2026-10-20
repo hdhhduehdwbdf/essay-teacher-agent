@@ -227,20 +227,15 @@
               <p v-if="currentCriteria" class="mt-1 text-[12px] leading-6" style="color:var(--teal)">
                 <i data-lucide="check-circle" class="inline h-3 w-3 align-[-2px]"></i> 过闸标准：{{ currentCriteria }}
               </p>
-              <textarea v-model="draft" rows="8" @keydown.ctrl.enter.prevent="submit" :placeholder="run.step === 1 ? '把你的作文初稿全文粘贴到这里（含标题）…' : '提交本环节内容；或直接输入你的疑问点【提问】'"
+              <textarea v-model="draft" rows="8" @keydown.ctrl.enter.prevent="smartSend" :placeholder="run.step === 1 ? '把你的作文初稿全文粘贴到这里（含标题）…' : '直接粘贴环节内容即提交；想提问就写“为什么/怎么/…”或加【提问】前缀'"
                 class="mt-2 w-full resize-y rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-[13.5px] leading-7"></textarea>
               <div class="mt-2 flex items-center gap-2 flex-wrap">
-                <button @click="ask" :disabled="!draft.trim()"
-                  class="btn-pop inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--ink-soft)] hover:text-[var(--ink)]">
-                  <span v-if="busyAsk" class="spin inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent"></span>
-                  <span v-if="busy">诊断后提问</span><span v-else>先提问</span>
-                </button>
-                <button @click="submit" :disabled="!draft.trim() || busy"
+                <button @click="smartSend" :disabled="!draft.trim() || busy"
                   class="btn-pop inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-40" style="background:var(--accent)">
-                  <span v-if="busy" class="spin inline-block h-3 w-3 rounded-full border-2 border-white border-t-transparent"></span>
-                  提交 · 等待教练诊断
+                  <span v-if="busy || busyAsk" class="spin inline-block h-3 w-3 rounded-full border-2 border-white border-t-transparent"></span>
+                  {{ sendMode === 'ask' ? '发送 · 提问' : '发送 · 提交诊断' }}
                 </button>
-                <span class="text-[11px] text-[var(--ink-faint)]">💪 判“不过”会打回重写，改到过为止</span>
+                <span class="text-[11px] text-[var(--ink-faint)]">💪 打回重写改到过为止；想提问就写【提问】或用问号短句</span>
               </div>
             </div>
 
@@ -329,7 +324,15 @@ createApp({
       const cur = steps.value.filter(s2 => s2.step === run.value.step);
       return cur.length ? cur[cur.length - 1].gate : '';
     });
-        const progressPct = computed(() => {
+        const sendMode = computed(() => {
+      const t = (draft.value || '').trim();
+      if (/^【提问】|^提问[:：]/.test(t)) return 'ask';
+      if (/^【提交】|^提交[:：]/.test(t)) return 'submit';
+      if (t.length <= 80 && /[？?]\s*$/.test(t)) return 'ask';
+      if (/^(为什么|怎么|如何|什么是|能不能|可不可以|需不需要|要不要|哪一|哪个|这句|这段|帮我看看这句|解释|说明一下)/.test(t) && t.length <= 80) return 'ask';
+      return 'submit';
+    });
+    const progressPct = computed(() => {
       if (!run.value || !stepDefs.value.length) return 0;
       if (run.value.status === 'done') return 100;
       return Math.round(((run.value.step - 1) / stepDefs.value.length) * 100);
@@ -442,9 +445,27 @@ createApp({
       finally { busy.value = false; streamText.value = ''; }
     }
     let queuedAsk = '';
-    async function ask() {
-      if (busy.value) { queuedAsk = draft.value.trim(); draft.value = ''; return; }
-      await sendAsk(draft.value.trim());
+    function detectMode(raw) {
+      const t = raw.trim();
+      if (/^【提问】/.test(t)) return { mode: 'ask', text: t.replace(/^【提问】\s*/, '') };
+      if (/^提问[:：]/.test(t)) return { mode: 'ask', text: t.replace(/^提问[:：]\s*/, '') };
+      if (/^【提交】/.test(t) || /^提交[:：]/.test(t)) return { mode: 'submit', text: t.replace(/^(【提交】|提交[:：])\s*/, '') };
+      if (t.length <= 80 && /[？?]\s*$/.test(t)) return { mode: 'ask', text: t };
+      if (/^(为什么|怎么|如何|什么是|什么是|能不能|可不可以|需不需要|要不要|哪一|哪个|这句|这段|帮我看看这句|解释|说明一下)/.test(t) && t.length <= 80) return { mode: 'ask', text: t };
+      return { mode: 'submit', text: t };
+    }
+    async function smartSend() {
+      const raw = draft.value.trim();
+      if (!raw) return;
+      const { mode, text } = detectMode(raw);
+      if (!text.trim()) { showToast('去掉标记后内容为空'); return; }
+      draft.value = text;
+      if (mode === 'ask') {
+        if (busy.value) { queuedAsk = text; draft.value = ''; showToast('诊断完成后自动提问'); return; }
+        await sendAsk(text);
+      } else {
+        await submit();
+      }
     }
     async function sendAsk(q) {
       if (!q || busyAsk.value) return;
@@ -490,7 +511,7 @@ createApp({
     onMounted(load);
     function renderMd(t) { return window.renderMarkdown(t); }
     return { stepDefs, loading, busy, tasks, run, task, steps, rulesVersion, isAdmin, draft, tTitle, tPrompt, tGuide, tGrade, taskMsg, showDraft, showRestart, showDoc, lastGate, newRound, taskFold, renderMd, streamText, ask, busyAsk, currentCriteria, scrollBottom, sidebarW, startResize, sidebarOpen, toast, showToast,
-      currentHint, stepDone, stepMark, printReport, load, enter, submit, createTask, stopSubmit, genre, switchGenre, progressPct, celebrate };
+      currentHint, stepDone, stepMark, printReport, load, enter, submit, createTask, stopSubmit, genre, switchGenre, progressPct, celebrate, smartSend, sendMode };
   }
 }).mount('#app');
 lucide.createIcons();
