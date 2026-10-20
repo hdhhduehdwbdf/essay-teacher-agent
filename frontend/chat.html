@@ -4,11 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>作文老师</title>
+  <link rel="preload" href="/vendor/MaShanZheng-subset.woff2" as="font" type="font/woff2" crossorigin>
 <script src="/vendor/tailwind.js"></script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%93%9D%3C/text%3E%3C/svg%3E">
 <script src="/vendor/vue.global.prod.js"></script>
 <script src="/vendor/lucide.min.js"></script>
+<script src="/vendor/md.js"></script>
 <style>
+  @font-face { font-family: "Ma Shan Zheng"; src: url("/vendor/MaShanZheng-subset.woff2") format("woff2"); font-display: swap; }
 :root { --bg:#FFFBF4; --ink:#2D2A26; --ink-soft:#8A8478; --ink-faint:#B8B0A3; --line:#EBE3D6; --accent:#E8674A; --accent-soft:#FFF0EA; --bubble:#FFF0E4; --card:#FFF; --link:#4A9B8E; --teal:#4A9B8E; --teal-soft:#E8F5F0; --sun:#FFD93D; --sky:#7EC8E3; --lav:#C9B8E8; }
 body { font-family:'PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei UI',system-ui,sans-serif; background:var(--bg); letter-spacing:.01em; color:var(--ink); }
 .serif { font-family:'Noto Serif SC','Songti SC',serif; }
@@ -35,8 +38,8 @@ textarea:focus { outline:none; }
 .prose-reply code { background:var(--accent-soft); padding:.15em .35em; border-radius:4px; font-size:.88em; }
 .prose-reply pre { background:var(--accent-soft); padding:.8em; border-radius:8px; overflow-x:auto; margin:.6em 0; }
 .prose-reply pre code { background:none; padding:0; }
-.copy-btn { opacity:0; transition:opacity .15s; }
-.msg-row:hover .copy-btn { opacity:1; }
+.copy-btn { transition:opacity .15s; }
+@media (hover:hover) { .copy-btn { opacity:0; } .msg-row:hover .copy-btn { opacity:1; } }
 .float { animation:float 5s ease-in-out infinite; }
 @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
 .float-slow { animation:float 7s ease-in-out infinite; }
@@ -46,6 +49,7 @@ textarea:focus { outline:none; }
 @keyframes bounceIn { 0%{opacity:0;transform:scale(.85)} 60%{transform:scale(1.04)} 100%{opacity:1;transform:scale(1)} }
 .sparkle { position:absolute; pointer-events:none; z-index:0; }
 .deco-star { position:absolute; pointer-events:none; z-index:0; opacity:.6; }
+.brush-char { font-family: 'Ma Shan Zheng','KaiTi','STKaiti','Kaiti SC','DFKai-SB',serif; font-size: 1.35rem; line-height: 1; }
 .welcome-icon { display:inline-flex; align-items:center; justify-content:center; width:48px; height:48px; border-radius:16px; font-size:20px; }
 .bubble-user { background:linear-gradient(135deg,#FFE8D6,#FFD9C0); border-radius:20px 20px 4px 20px; }
 .bubble-teacher { border-radius:4px 20px 20px 20px; }
@@ -61,6 +65,8 @@ textarea:focus { outline:none; }
 .tag-技巧 { background:#FFF3D6; color:#B8860B; }
 .tag-素材 { background:#EDE8F5; color:#7B5EA7; }
 .wavy-divider { height:2px; background:repeating-linear-gradient(90deg,var(--line) 0,var(--line) 6px,transparent 6px,transparent 12px); border:none; }
+.wp-chips { scrollbar-width: none; }
+.wp-chips::-webkit-scrollbar { display: none; }
 i[data-lucide] { display:inline-flex; align-items:center; justify-content:center; }
 i[data-lucide] > svg { width:100%; height:100%; }
 </style>
@@ -69,9 +75,11 @@ i[data-lucide] > svg { width:100%; height:100%; }
 <div id="app" class="h-full flex overflow-hidden">
 <div v-if="isNarrow && (sidebarOpen || cardsOpen)" @click="closeOverlays" class="fixed inset-0 z-30 bg-black/25"></div>
 
-<aside v-show="sidebarOpen" class="flex flex-col bg-[var(--bg)]"
-  :class="isNarrow ? 'fixed inset-y-0 left-0 z-40 w-64 max-w-[85vw] shadow-xl' : 'shrink-0 w-60 border-r border-[var(--line)]'">
-  <div class="shrink-0 px-3 py-3 border-b border-[var(--line)] flex items-center justify-between">
+<aside v-show="sidebarOpen" class="relative flex flex-col bg-[var(--bg)]"
+  :class="isNarrow ? 'fixed inset-y-0 left-0 z-40 w-64 max-w-[85vw] shadow-xl' : 'shrink-0 border-r border-[var(--line)]'"
+  :style="isNarrow ? {} : { width: sessW + 'px' }">
+  <div v-if="!isNarrow" @mousedown="startResize($event, 'sess')" class="absolute top-0 right-0 z-10 h-full w-1 cursor-col-resize hover:bg-[var(--accent)]/30"></div>
+  <div class="shrink-0 px-3 h-[52px] flex items-center justify-between border-b border-[var(--line)]">
     <p class="serif text-sm font-semibold flex items-center gap-1.5"><i data-lucide="history" class="h-3.5 w-3.5 text-[var(--teal)]"></i>会话记录</p>
     <button @click="toggleSidebar" title="收起" class="rounded p-1 text-[var(--ink-faint)] hover:text-[var(--ink)] hover:bg-[var(--card)]"><i data-lucide="panel-left-close" class="h-3.5 w-3.5"></i></button>
   </div>
@@ -80,12 +88,26 @@ i[data-lucide] > svg { width:100%; height:100%; }
       <i data-lucide="plus" class="h-3.5 w-3.5"></i>新对话 ✨
     </button>
   </div>
+  <div class="px-3 pb-2.5 -mt-1">
+    <a href="/coach" class="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--accent)]/35 bg-[var(--accent)]/8 px-3 py-1.5 text-xs text-[var(--accent)] transition hover:bg-[var(--accent)]/15">
+      <i data-lucide="pen-line" class="h-3.5 w-3.5"></i>作文打磨
+    </a>
+  </div>
+  <div class="px-3 pb-2.5">
+    <button v-if="messages.length > 0" @click="reset" class="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--ink-faint)] transition hover:bg-[var(--card)] hover:text-red-500">
+      <i data-lucide="eraser" class="h-3.5 w-3.5"></i>清空当前会话
+    </button>
+  </div>
   <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
     <button v-for="s in sessions" :key="s.id" @click="switchSession(s.id)" class="group w-full text-left rounded-lg px-3 py-2 transition"
       :class="currentId === s.id ? 'bg-[var(--card)] border border-[var(--line)]' : 'border border-transparent hover:bg-[var(--card)]'">
       <span class="flex items-center gap-2">
         <i :data-lucide="currentId === s.id ? 'message-square' : 'message-circle'" class="h-3 w-3 shrink-0" :class="currentId === s.id ? 'text-[var(--accent)]' : 'text-[var(--ink-faint)]'"></i>
         <span class="text-xs truncate flex-1" :class="currentId === s.id ? 'text-[var(--ink)] font-medium' : 'text-[var(--ink-soft)]'">{{ s.label }}</span>
+        <span role="button" @click.stop="renameSession(s)" title="重命名"
+          class="shrink-0 opacity-0 group-hover:opacity-100 text-[var(--ink-faint)] hover:text-[var(--ink)] cursor-pointer">
+          <i data-lucide="pencil" class="h-3 w-3"></i>
+        </span>
       </span>
       <span class="flex items-center gap-2 mt-0.5 pl-5">
         <span class="text-[10px] text-[var(--ink-faint)]">{{ s.turns || 0 }} 轮</span>
@@ -108,10 +130,10 @@ i[data-lucide] > svg { width:100%; height:100%; }
 <div class="flex-1 min-w-0 flex flex-col">
 
 <header class="shrink-0 sticky top-0 z-20 border-b border-[var(--line)]/60 bg-[var(--bg)]/85 backdrop-blur-sm">
-  <div class="mx-auto w-full max-w-2xl px-6 py-3 flex items-center justify-between">
+  <div class="mx-auto w-full max-w-2xl px-6 h-[52px] flex items-center justify-between">
     <div class="flex items-center gap-2.5 fade-in">
-      <span class="avatar avatar-teacher wiggle"><i data-lucide="pen-tool" class="h-4 w-4"></i></span>
-      <div>
+      <span class="avatar avatar-teacher wiggle"><img src="/vendor/pen-tool.svg" alt="老师" class="h-4 w-4"></span>
+      <div class="flex items-baseline gap-2">
         <p class="serif text-lg font-semibold tracking-[.03em] text-[var(--ink)] leading-tight">作文老师</p>
         <p class="hidden sm:block text-[10px] text-[var(--ink-faint)]">一位愿意陪你改文章的人</p>
       </div>
@@ -125,10 +147,7 @@ i[data-lucide] > svg { width:100%; height:100%; }
         <i data-lucide="layers" class="h-4 w-4"></i>
         <span class="hidden sm:inline">卡片</span>
       </button>
-      <button @click="logout" title="退出登录" class="btn-pop inline-flex items-center rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-xs text-[var(--ink-soft)] hover:text-[var(--accent)]">
-        <i data-lucide="log-out" class="h-4 w-4"></i>
-      </button>
-    </div>
+      </div>
   </div>
 </header>
 
@@ -141,14 +160,14 @@ i[data-lucide] > svg { width:100%; height:100%; }
         <span class="deco-star text-[var(--lav)] text-sm float-slow" style="top:12px;right:24px">✦</span>
         <span class="deco-star text-[var(--sky)] text-base float" style="top:56px;right:80px;animation-delay:1.5s">☀</span>
         <div class="flex items-center gap-3 mb-4">
-          <span class="welcome-icon bounce-in" style="background:linear-gradient(135deg,#FFF0EA,#FFE0D0);color:#E8674A"><i data-lucide="pen-tool" class="h-6 w-6"></i></span>
-          <span class="welcome-icon bounce-in" style="background:linear-gradient(135deg,#E8F5F0,#D0EDE0);color:#4A9B8E;animation-delay:.15s"><i data-lucide="book-open" class="h-5 w-5"></i></span>
-          <span class="welcome-icon bounce-in" style="background:linear-gradient(135deg,#FFF3D6,#FFEAB8);color:#B8860B;animation-delay:.3s"><i data-lucide="lightbulb" class="h-5 w-5"></i></span>
-          <span class="welcome-icon bounce-in" style="background:linear-gradient(135deg,#EDE8F5,#E0D5EE);color:#7B5EA7;animation-delay:.45s"><i data-lucide="star" class="h-5 w-5"></i></span>
+          <span class="welcome-icon brush-char bounce-in" style="background:linear-gradient(135deg,#FFF0EA,#FFE0D0);color:#E8674A;">写</span>
+          <span class="welcome-icon brush-char bounce-in" style="background:linear-gradient(135deg,#E8F5F0,#D0EDE0);color:#4A9B8E;animation-delay:.15s">批</span>
+          <span class="welcome-icon brush-char bounce-in" style="background:linear-gradient(135deg,#FFF3D6,#FFEAB8);color:#B8860B;animation-delay:.3s">改</span>
+          <span class="welcome-icon brush-char bounce-in" style="background:linear-gradient(135deg,#EDE8F5,#E0D5EE);color:#7B5EA7;animation-delay:.45s">记</span>
         </div>
-        <p class="mb-1 text-sm text-[var(--ink-soft)]">你好，我是叁月聚粮 ✋</p>
+        <p class="mb-1 text-sm text-[var(--ink-soft)]">你好，我是你的作文老师 ✋</p>
         <h1 class="serif text-3xl font-semibold leading-relaxed tracking-wide sm:text-[2.1rem] text-[var(--ink)] mt-1">
-          文章是<span style="color:var(--accent)">改</span>出来的。<br>交给我，我们慢慢来。
+          文章是<span style="color:var(--accent)">改</span>出来的<br>交给我，我们慢慢来
         </h1>
         <p class="mt-4 max-w-md text-sm leading-7 text-[var(--ink-soft)]">
           发一段你想改的作文、一个题目，或者只是说"我不知道怎么写"。我会像批作业一样，一段一段读，一处一处说。
@@ -175,7 +194,7 @@ i[data-lucide] > svg { width:100%; height:100%; }
             <span class="avatar avatar-user"><i data-lucide="user" class="h-3.5 w-3.5"></i></span>
           </div>
           <div v-else class="flex items-center gap-2 mb-1.5">
-            <span class="avatar avatar-teacher"><i data-lucide="pen-tool" class="h-3.5 w-3.5"></i></span>
+            <span class="avatar avatar-teacher"><img src="/vendor/pen-tool.svg" alt="老师" class="h-3.5 w-3.5"></span>
             <span class="text-[11px] tracking-wide text-[var(--ink-faint)]">老师</span>
           </div>
 
@@ -279,47 +298,147 @@ i[data-lucide] > svg { width:100%; height:100%; }
 
 </div>
 
-<aside v-show="cardsOpen" class="flex flex-col bg-[var(--bg)]"
-  :class="isNarrow ? 'fixed inset-y-0 right-0 z-40 w-80 max-w-[88vw] shadow-xl' : 'shrink-0 w-80 border-l border-[var(--line)]'">
-  <div class="shrink-0 px-4 py-3 border-b border-[var(--line)] flex items-center justify-between">
+<aside v-show="cardsOpen" class="relative flex flex-col bg-[var(--bg)]"
+  :class="isNarrow ? 'fixed inset-y-0 right-0 z-40 w-80 max-w-[88vw] shadow-xl' : 'shrink-0 border-l border-[var(--line)]'"
+  :style="isNarrow ? {} : { width: cardsWide ? 'min(70vw, 1040px)' : cardsW + 'px' }">
+  <div v-if="!isNarrow" @mousedown="startResize($event, 'cards')" class="absolute top-0 left-0 z-10 h-full w-1 cursor-col-resize hover:bg-[var(--accent)]/30"></div>
+  <div class="shrink-0 px-4 h-[52px] flex items-center justify-between border-b border-[var(--line)]">
     <p class="serif text-sm font-semibold flex items-center gap-1.5"><i data-lucide="layers" class="h-3.5 w-3.5 text-[var(--teal)]"></i>薄弱点卡片</p>
+    <button @click="cardsWide = !cardsWide" :title="cardsWide ? '收起大屏' : '展开成大屏'" class="rounded p-1 text-[var(--ink-faint)] hover:text-[var(--ink)] hover:bg-[var(--card)]"><i :data-lucide="cardsWide ? 'minimize-2' : 'maximize-2'" class="h-3.5 w-3.5"></i></button>
     <button @click="toggleCards" title="收起" class="rounded p-1 text-[var(--ink-faint)] hover:text-[var(--ink)] hover:bg-[var(--card)]"><i data-lucide="panel-right-close" class="h-3.5 w-3.5"></i></button>
   </div>
   <div class="shrink-0 px-4 py-2.5 border-b border-[var(--line)] space-y-2">
-    <div class="flex items-center gap-2 text-xs text-[var(--ink-faint)]">
-      <span>共 {{ wpStats.total || 0 }} 张 · 待复习 {{ wpStats.todo || 0 }}</span>
-      <select v-model="wpDeck" @change="loadWeakpoints" class="ml-auto rounded border border-[var(--line)] bg-[var(--card)] px-1.5 py-0.5 text-xs max-w-[8rem]">
-        <option value="">全部分区</option>
-        <option v-for="d in wpDecks" :key="d.id" :value="d.id">{{ d.name }}</option>
-      </select>
-      <button @click="wpDeckCreate" title="新建分区" class="rounded px-1.5 py-0.5 border border-[var(--line)] hover:bg-[var(--card)]">+</button>
+    <div class="flex items-center gap-1.5 text-xs">
+      <span class="text-[var(--ink-faint)] shrink-0">共 {{ wpStats.total || 0 }} 张</span>
+      <span class="ml-auto"></span>
+      <button @click="wpAddOpen = true" title="增加卡片" class="rounded p-1 border border-[var(--line)] text-[var(--ink-soft)] hover:text-[var(--accent)] hover:bg-[var(--card)]">
+        <i data-lucide="plus" class="h-3.5 w-3.5"></i>
+      </button>
+      <button @click="wpManage = true" title="管理分类" class="rounded p-1 border border-[var(--line)] text-[var(--ink-soft)] hover:text-[var(--teal)] hover:bg-[var(--card)]">
+        <i data-lucide="tags" class="h-3.5 w-3.5"></i>
+      </button>
     </div>
-    <div class="flex items-center gap-1.5">
-      <input v-model="wpDraft" @keydown.enter="wpAddManual" placeholder="手动记一张卡片…"
-        class="flex-1 rounded border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-xs">
-      <button @click="wpAddManual" class="rounded bg-[var(--ink)] px-2 py-1 text-xs text-[var(--card)] hover:bg-black">添加</button>
+    <input v-model="wpSearch" placeholder="搜索卡片内容或出处…" class="w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-2.5 py-1 text-[11.5px]">
+    <div class="wp-chips flex gap-1.5 overflow-x-auto">
+      <button @click="wpDeck = ''" class="shrink-0 rounded-full px-2.5 py-1 text-[11px] border transition"
+        :class="wpDeck === '' ? 'border-transparent bg-[var(--ink)] text-[var(--card)]' : 'border-[var(--line)] text-[var(--ink-soft)] hover:text-[var(--ink)]'">全部</button>
+      <button v-for="(d, di) in wpDecks" :key="d.id" @click="wpDeck = d.id" @dragover.prevent @drop="onDropDeck(d.id, $event)" title="拖卡片到这里移动分区"
+        class="shrink-0 rounded-full px-2.5 py-1 text-[11px] transition text-white"
+        :style="wpDeck === d.id ? 'background:' + wpChipColor(d, di) : 'background:' + wpChipColor(d, di) + '2E'">{{ d.name }}</button>
+      <button @click="wpDeck = 'none'" @dragover.prevent @drop="onDropDeck('', $event)" class="shrink-0 rounded-full px-2.5 py-1 text-[11px] border border-dashed transition"
+        :class="wpDeck === 'none' ? 'border-[var(--ink)] bg-[var(--ink)] text-[var(--card)]' : 'border-[var(--line)] text-[var(--ink-faint)] hover:text-[var(--ink-soft)]'">未分类</button>
     </div>
   </div>
   <div class="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
-    <p v-if="wpCards.length === 0" class="text-xs text-[var(--ink-faint)]">还没有卡片。聊天里我会帮你把薄弱点抽出来，确认后存到这里。</p>
-    <div v-for="c in wpCards" :key="c.id" class="rounded-lg border p-2.5" :class="c.mastered ? 'border-[var(--line)] opacity-60' : 'border-[var(--line)]'">
+    <p v-if="wpFiltered.length === 0" class="text-xs text-[var(--ink-faint)]">{{ wpSearch ? '没有匹配的卡片。' : '还没有卡片。聊天里我会帮你把薄弱点抽出来，确认后存到这里。' }}</p>
+    <div v-for="c in wpFiltered" :key="c.id" class="cursor-grab rounded-lg border p-2.5 active:cursor-grabbing" :class="c.mastered ? 'opacity-60' : ''" draggable="true" @dragstart="onDragStart(c, $event)" @click="openDetail(c)"
+      :style="deckColorOf(c.deck) ? { borderLeft: '3px solid ' + deckColorOf(c.deck) } : {}">
       <div class="flex items-center gap-1.5">
-        <span class="tag-type" :class="'tag-' + c.type">{{ c.type }}</span>
+        <select :value="c.type" @click.stop @change.stop="wpUpdateType(c, $event.target.value)" title="点击修改类型"
+          class="tag-type cursor-pointer" :class="'tag-' + c.type">
+          <option value="">不分类</option><option>知识点</option><option>易错点</option><option>技巧</option><option>素材</option>
+        </select>
         <span v-if="c.hits > 1" class="text-[10px] text-[var(--ink-faint)]">×{{ c.hits }}</span>
         <span v-if="c.mastered" class="text-[10px] text-emerald-600">已掌握</span>
-        <button @click="wpPractice(c)" title="让老师讲这条并出练习题" class="ml-auto text-[10px] text-[var(--ink-soft)] hover:text-[var(--ink)] underline underline-offset-2">练一练</button>
-        <button @click="wpToggle(c)" :title="c.mastered ? '标回待复习' : '我掌握了'" class="text-[10px] text-[var(--ink-soft)] hover:text-emerald-600">{{ c.mastered ? '↺' : '✓' }}</button>
-        <button @click="wpDelete(c)" class="text-[10px] text-[var(--ink-soft)] hover:text-red-500">✕</button>
+        <button @click.stop="wpPractice(c)" title="让老师讲这条并出练习题" class="ml-auto text-[10px] text-[var(--ink-soft)] hover:text-[var(--ink)] underline underline-offset-2">练一练</button>
+        <button @click.stop="wpToggle(c)" :title="c.mastered ? '标回待复习' : '我掌握了'" class="text-[10px] text-[var(--ink-soft)] hover:text-emerald-600">{{ c.mastered ? '↺' : '✓' }}</button>
+        <button @click.stop="wpDelete(c)" class="text-[10px] text-[var(--ink-soft)] hover:text-red-500">✕</button>
       </div>
       <p class="mt-1.5 text-[13px] leading-6 text-[var(--ink)]">{{ c.point }}</p>
-      <p v-if="c.evidence" class="mt-1 text-[11px] leading-5 text-[var(--ink-faint)]">{{ c.evidence }}</p>
-      <select v-if="wpDecks.length" :value="c.deck" @change="wpMove(c, $event.target.value)" class="mt-1.5 rounded border border-[var(--line)] bg-[var(--card)] px-1 py-0.5 text-[10px] text-[var(--ink-faint)]">
-        <option value="">未分区</option>
-        <option v-for="d in wpDecks" :key="d.id" :value="d.id">{{ d.name }}</option>
-      </select>
+      <button v-if="c.evidence && !c._ev" @click.stop="c._ev = true" class="mt-1 text-[10.5px] text-[var(--ink-faint)] hover:text-[var(--ink-soft)] underline underline-offset-2 transition">展开原文</button>
+      <p v-if="c.evidence && c._ev" class="mt-1 text-[11px] leading-5 text-[var(--ink-faint)]">{{ c.evidence }}
+        <button @click.stop="c._ev = false" class="ml-1 text-[10.5px] text-[var(--ink-faint)] hover:text-[var(--ink-soft)] underline underline-offset-2">收起</button></p>
     </div>
   </div>
 </aside>
+
+<div v-if="wpManage" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/25" @click="wpManage = false"></div>
+  <div class="relative z-10 w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-[0_16px_48px_rgba(20,24,30,.18)]">
+    <div class="flex items-start gap-2 border-b border-[var(--line)] px-4 py-3">
+      <div>
+        <p class="text-[13px] font-medium text-[var(--ink)]">管理分类</p>
+        <p class="mt-0.5 text-[11px] text-[var(--ink-faint)]">最多 8 个，颜色可自定义。删除分类不删卡片，卡片的类型会被清空、退回未分类。</p>
+      </div>
+      <button @click="wpManage = false" class="ml-auto rounded p-1 text-[var(--ink-faint)] hover:text-[var(--ink)]"><i data-lucide="x" class="h-4 w-4"></i></button>
+    </div>
+    <div class="px-4 py-3 space-y-1.5">
+      <div v-for="(d, di) in wpDecks" :key="d.id" class="flex items-center gap-2 rounded-lg border border-[var(--line)] px-2.5 py-1.5">
+        <span class="h-2.5 w-2.5 rounded-full shrink-0" :style="'background:' + wpChipColor(d, di)"></span>
+        <span class="text-[12.5px] text-[var(--ink)] truncate">{{ d.name }}</span>
+        <span class="ml-auto text-[10px] text-[var(--ink-faint)] shrink-0">{{ wpCards.filter(c => c.deck === d.id).length }} 张</span>
+        <input type="color" :value="d.color || wpDeckColor(di)" @change="wpDeckSetColor(d, $event.target.value)" title="自定义颜色"
+          class="h-5 w-5 shrink-0 cursor-pointer rounded border border-[var(--line)] bg-transparent p-0">
+        <button @click="wpDeckSetColor(d, '')" title="恢复自动颜色" class="text-[10px] text-[var(--ink-faint)] hover:text-[var(--ink-soft)] shrink-0">自动</button>
+        <button @click="wpDeckRename(d)" title="重命名" class="text-[11px] text-[var(--ink-soft)] hover:text-[var(--ink)] shrink-0">✎</button>
+        <button @click.stop="wpDeckClear(d)" title="清空该分类全部卡片" class="text-[11px] text-[var(--ink-soft)] hover:text-red-400 shrink-0">清空</button>
+        <button @click="wpDeckDelete(d)" title="删除分类" class="text-[11px] text-[var(--ink-soft)] hover:text-red-500 shrink-0">✕</button>
+      </div>
+      <div class="flex items-center gap-1.5 pt-1">
+        <input v-model="wpNewDeckName" @keydown.enter="wpDeckCreate(wpNewDeckName)" placeholder="新分类名称…"
+          class="flex-1 rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs">
+        <button @click="wpDeckCreate(wpNewDeckName)" :disabled="wpDecks.length >= 8 || !wpNewDeckName.trim()"
+          class="rounded-md bg-[var(--ink)] px-2.5 py-1 text-xs text-[var(--card)] disabled:opacity-30">新增</button>
+      </div>
+      <p v-if="wpDecks.length >= 8" class="text-[10.5px] text-[var(--ink-faint)]">已达 8 个上限。</p>
+    </div>
+  </div>
+</div>
+
+<div v-if="detailCard" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/25" @click="detailCard = null"></div>
+  <div class="relative z-10 w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-[0_16px_48px_rgba(20,24,30,.18)]">
+    <div class="flex items-start gap-2 border-b border-[var(--line)] px-4 py-3">
+      <p class="text-[13px] font-medium text-[var(--ink)]">卡片详情</p>
+      <button @click="detailCard = null" class="ml-auto rounded p-1 text-[var(--ink-faint)] hover:text-[var(--ink)]"><i data-lucide="x" class="h-4 w-4"></i></button>
+    </div>
+    <div class="px-4 py-3 space-y-2">
+      <div class="flex items-center gap-1.5">
+        <select v-model="detailForm.type" class="tag-type cursor-pointer" :class="'tag-' + detailForm.type">
+          <option value="">不分类</option><option>知识点</option><option>易错点</option><option>技巧</option><option>素材</option>
+        </select>
+        <select v-model="detailForm.deck" class="rounded-md border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-[11.5px]">
+          <option value="">未分类</option>
+          <option v-for="d in wpDecks" :key="d.id" :value="d.id">{{ d.name }}</option>
+        </select>
+      </div>
+      <textarea v-model="detailForm.point" rows="4" placeholder="卡片内容"
+        class="w-full resize-none rounded-md border border-[var(--line)] bg-transparent px-2 py-1.5 text-[12.5px] leading-5 text-[var(--ink)]"></textarea>
+      <input v-model="detailForm.evidence" placeholder="出处 / 原句（可留空）"
+        class="w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-[11.5px] text-[var(--ink-soft)]">
+    </div>
+    <div class="flex items-center gap-2 border-t border-[var(--line)] px-4 py-2.5">
+      <button @click="detailDelete" class="rounded-md px-2.5 py-1 text-[11.5px] text-red-500 hover:underline">删除卡片</button>
+      <button @click="detailCard = null" class="ml-auto rounded-md px-2.5 py-1 text-[11.5px] text-[var(--ink-soft)] hover:text-[var(--ink)]">取消</button>
+      <button @click="detailSave" class="rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-medium text-[var(--card)]">保存</button>
+    </div>
+  </div>
+</div>
+
+<div v-if="wpAddOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/25" @click="wpAddOpen = false"></div>
+  <div class="relative z-10 w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-[0_16px_48px_rgba(20,24,30,.18)]">
+    <div class="flex items-start gap-2 border-b border-[var(--line)] px-4 py-3">
+      <p class="text-[13px] font-medium text-[var(--ink)]">手动增加卡片</p>
+      <button @click="wpAddOpen = false" class="ml-auto rounded p-1 text-[var(--ink-faint)] hover:text-[var(--ink)]"><i data-lucide="x" class="h-4 w-4"></i></button>
+    </div>
+    <div class="px-4 py-3 space-y-2">
+      <textarea v-model="wpNewPoint" rows="3" placeholder="要记的内容"
+        class="w-full resize-none rounded-md border border-[var(--line)] bg-transparent px-2 py-1.5 text-[12.5px] leading-5 text-[var(--ink)]"></textarea>
+      <div class="flex items-center gap-1.5">
+        <select v-model="wpNewType" class="rounded-md border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-[11.5px]">
+          <option value="">不分类</option><option>知识点</option><option>易错点</option><option>技巧</option><option>素材</option>
+        </select>
+        <input v-model="wpNewEv" placeholder="出处 / 原句（可留空）" class="flex-1 rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-[11px] text-[var(--ink-soft)]">
+      </div>
+    </div>
+    <div class="flex items-center gap-2 border-t border-[var(--line)] px-4 py-2.5">
+      <button @click="wpAddOpen = false" class="ml-auto rounded-md px-2.5 py-1 text-[11.5px] text-[var(--ink-soft)] hover:text-[var(--ink)]">取消</button>
+      <button @click="wpAddManual" :disabled="!wpNewPoint.trim()"
+        class="rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-medium text-[var(--card)] disabled:opacity-25">保存卡片</button>
+    </div>
+  </div>
+</div>
 
 <div v-if="wpSuggest.items.length" class="fixed inset-0 z-50 flex items-center justify-center p-4">
   <div class="absolute inset-0 bg-black/25" @click="wpSuggest.items = []"></div>
@@ -343,17 +462,14 @@ i[data-lucide] > svg { width:100%; height:100%; }
         </div>
         <textarea v-model="it.point" rows="2" placeholder="这条要记的内容"
           class="mt-1.5 w-full resize-none rounded-md border border-[var(--line)] bg-transparent px-2 py-1.5 text-[12.5px] leading-5 text-[var(--ink)] placeholder:text-[var(--ink-faint)]"></textarea>
-        <input v-model="it.evidence" placeholder="出处 / 原句（可留空）"
+        <button v-if="!it._ev" @click="it._ev = true" class="mt-1 text-[10.5px] text-[var(--ink-faint)] hover:text-[var(--ink-soft)] underline underline-offset-2 transition">展开出处 / 原句</button>
+        <input v-else v-model="it.evidence" placeholder="出处 / 原句（可留空）"
           class="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-[11px] text-[var(--ink-soft)] placeholder:text-[var(--ink-faint)]">
+        <button v-if="it._ev" @click="it._ev = false" class="mt-0.5 text-[10.5px] text-[var(--ink-faint)] hover:text-[var(--ink-soft)] underline underline-offset-2 transition">收起</button>
       </div>
     </div>
     <div class="flex shrink-0 flex-wrap items-center gap-2 border-t border-[var(--line)] px-4 py-2.5">
-      <span class="text-[11.5px] text-[var(--ink-faint)]">存入</span>
-      <select v-model="wpSuggest.deck" class="rounded-md border border-[var(--line)] bg-[var(--card)] px-2 py-1 text-[11.5px] text-[var(--ink)]">
-        <option value="">未分区</option>
-        <option v-for="d in wpDecks" :key="d.id" :value="d.id">{{ d.name }}</option>
-      </select>
-      <span class="text-[11px] text-[var(--ink-faint)]">已勾 {{ wpSuggest.items.filter(i => i.take).length }} 条</span>
+      <span class="text-[11px] text-[var(--ink-faint)]">存入分区按类型自动对应 · 已勾 {{ wpSuggest.items.filter(i => i.take).length }} 条</span>
       <button @click="wpSuggest.items = []" class="ml-auto rounded-md px-2.5 py-1 text-[11.5px] text-[var(--ink-soft)] hover:text-[var(--ink)]">取消</button>
       <button @click="wpSaveSuggest" :disabled="savingCard || !wpSuggest.items.some(i => i.take)"
         class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 py-1.5 text-xs font-medium text-[var(--card)] transition disabled:opacity-25 disabled:cursor-not-allowed">
@@ -401,9 +517,62 @@ createApp({
     const wpCards = ref([]);
     const wpStats = ref({});
     const wpDeck = ref('');
-    const wpDraft = ref('');
+    const wpSearch = ref('');
+    const wpFiltered = computed(() => {
+      let list = wpCards.value;
+      if (wpDeck.value === 'none') list = list.filter(c => !c.deck);
+      else if (wpDeck.value) list = list.filter(c => c.deck === wpDeck.value);
+      else list = list.filter(c => c.deck);
+      const k = wpSearch.value.trim().toLowerCase();
+      if (k) list = list.filter(c => (c.point || '').toLowerCase().includes(k) || (c.evidence || '').toLowerCase().includes(k));
+      return list;
+    });
+    const sessW = ref(parseInt(localStorage.getItem('sessW') || '240'));
+    const cardsW = ref(parseInt(localStorage.getItem('cardsW') || '320'));
+    function startResize(e, which) {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = which === 'sess' ? sessW.value : cardsW.value;
+      function onMove(ev) {
+        const w = which === 'sess' ? startW + (ev.clientX - startX) : startW - (ev.clientX - startX);
+        const clamped = Math.min(480, Math.max(200, w));
+        if (which === 'sess') sessW.value = clamped; else cardsW.value = clamped;
+      }
+      function onUp() {
+        localStorage.setItem('sessW', sessW.value);
+        localStorage.setItem('cardsW', cardsW.value);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      }
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    }
+    const wpAddOpen = ref(false);
+    const wpManage = ref(false);
+    const wpNewPoint = ref('');
+    const wpNewType = ref('');
+    const wpNewEv = ref('');
+    const wpNewDeckName = ref('');
     const wpSuggest = ref({ items: [], deck: '' });
+    const wpCache = new Map();
+    function cacheKey(prev, reply) { return (prev || '') + '||' + (reply || ''); }
+    async function prefetchCards(prev, m) {
+      const key = cacheKey(prev, m.text);
+      if (!m.text || m.text.length < 40 || wpCache.has(key)) return;
+      try {
+        const res = await fetch('/api/weakpoints/suggest', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: prev || '', reply: m.text })
+        });
+        const d = await res.json();
+        wpCache.set(key, (d.items || []).map(it => ({ ...it, take: true, _ev: false })));
+      } catch (e) {}
+    }
     const commands = ref([]);
+    const cardsWide = ref(false);
+    const detailCard = ref(null);
+    const detailForm = ref({});
+    const dragId = ref('');
     const cmdMatches = computed(() => {
       const m = /^\/([\u4e00-\u9fffA-Za-z]{0,8})$/.exec(draft.value.trim());
       if (!m) return [];
@@ -423,45 +592,12 @@ createApp({
     const loadingHint = ref(loadingHints[0]);
 
     const suggestions = [
-      '帮我看看这段作文怎么改',
-      '这个题目可以从哪些角度立意',
-      '今年高考作文会考什么方向'
+      '我写了一篇作文，帮我逐段批改，告诉我哪里最影响分数',
+      '我有个作文题拿不准立意，帮我找出最稳的立意角度',
+      '高考前作文还要怎么提分？帮我理一遍最该练的方向'
     ];
 
-    function renderMarkdown(text) {
-      let s = String(text || '')
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const starCount = (s.match(/\*\*/g) || []).length;
-      if (starCount % 2 === 1) s = s.replace(/\*\*(?=[^*]*$)/, '');
-      // 1) 先把代码抽成占位符，防止内部内容被后续规则二次转换
-      const stash = [];
-      const keep = (html) => '\u0000' + (stash.push(html) - 1) + '\u0000';
-      s = s.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) =>
-        keep('<pre><code>' + code.trim() + '</code></pre>'));
-      s = s.replace(/`([^`\n]+)`/g, (_, code) => keep('<code>' + code + '</code>'));
-      // 2) 块级与行内转换（此时正文里已无代码内容）
-      s = s.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-      s = s.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-      s = s.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-      s = s.replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>');
-      s = s.replace(/\*(?=\S)([^*\n]+?)(?<=\S)\*/g, '<em>$1</em>');
-      s = s.replace(/~~([^~\n]+?)~~/g, '<del>$1</del>');
-      s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-        (_, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="underline text-amber-400">${label}</a>`);
-      s = s.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
-      s = s.replace(/^- (.+)$/gm, '<li>$1</li>');
-      s = s.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-      s = s.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, '<ul>$1</ul>');
-      // 3) 按行包段落，占位符行（块级元素）原样保留
-      const lines = s.split('\n');
-      const out = [];
-      for (const line of lines) {
-        if (line.startsWith('<') || /^\u0000\d+\u0000$/.test(line.trim())) { out.push(line); }
-        else if (line.trim()) { out.push('<p>' + line + '</p>'); }
-      }
-      // 3) 还原代码占位符
-      return out.join('\n').replace(/\u0000(\d+)\u0000/g, (_, i) => stash[i]);
-    }
+    const renderMarkdown = window.renderMarkdown;
 
     function startHintCycle() {
       let idx = 0;
@@ -596,7 +732,7 @@ createApp({
           try { ev = JSON.parse(raw.slice(5).trim()); } catch (e) { continue; }
           if (ev.type === 'steps') {
             m.steps = Array.isArray(ev.steps) ? ev.steps : [];
-            stepsOpen.value[messages.value.indexOf(m)] = true;
+            stepsOpen.value[messages.value.indexOf(m)] = stepsOpen.value[messages.value.indexOf(m)] || false;
           } else if (ev.type === 'delta') {
             m.text += ev.text || '';
             scrollBottom();
@@ -612,6 +748,7 @@ createApp({
         }
       }
       renderIcons(); scrollBottom();
+      setTimeout(() => prefetchCards(text, m), 300);
       return true;
     }
 
@@ -624,6 +761,14 @@ createApp({
       const m = messages.value[i];
       if (!m || !m.text) return;
       const prev = messages.value[i - 1];
+      const key = cacheKey(prev ? prev.text : '', m.text);
+      if (wpCache.has(key)) {
+        const cached = wpCache.get(key).map(it => ({ ...it, take: true, _ev: false }));
+        if (!cached.length) { flash('这段里没找到值得沉淀的内容'); return; }
+        wpSuggest.value = { items: cached, deck: wpDeck.value };
+        renderIcons();
+        return;
+      }
       extractingIdx.value = i;
       try {
         const res = await fetch('/api/weakpoints/suggest', {
@@ -634,6 +779,8 @@ createApp({
         if (!d.items) { flash('整理失败'); return; }
         const items = (d.items || []).map(it => ({ ...it, take: true }));
         if (!items.length) { flash('这段里没找到值得沉淀的内容'); return; }
+        items.forEach(it => { it._ev = false; });
+        wpCache.set(cacheKey(prev ? prev.text : '', m.text), items);
         wpSuggest.value = { items, deck: wpDeck.value };
         renderIcons();
       } catch (e) { flash('整理失败'); }
@@ -654,35 +801,60 @@ createApp({
 
     async function loadWeakpoints() {
       try {
-        const q = wpDeck.value ? ('?deck=' + encodeURIComponent(wpDeck.value)) : '';
+        const q = '';
         const d = await (await fetch('/api/weakpoints' + q)).json();
         wpDecks.value = (d.decks || []).filter(Boolean);
-        wpCards.value = (d.cards || []).filter(Boolean);
+        wpCards.value = (d.cards || []).filter(Boolean).map(c => ({ _ev: false, ...c }));
         wpStats.value = d.stats || {};
       } catch (e) {}
     }
 
     async function wpAddManual() {
-      const point = wpDraft.value.trim();
+      const point = wpNewPoint.value.trim();
       if (!point) return;
-      await fetch('/api/weakpoints/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ point, deck: wpDeck.value }) });
-      wpDraft.value = '';
+      await fetch('/api/weakpoints/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ point, type: wpNewType.value, evidence: wpNewEv.value.trim() }) });
+      wpNewPoint.value = ''; wpNewEv.value = ''; wpAddOpen.value = false;
       loadWeakpoints();
     }
 
-    async function wpDeckCreate() {
-      const name = prompt('新分区名称：');
+    async function wpUpdateType(c, t) {
+      const target = wpDecks.value.find(d => d.name === t);
+      await fetch('/api/weakpoints/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id, type: t, deck: target ? target.id : '' }) });
+      loadWeakpoints();
+    }
+
+    async function wpDeckCreate(name) {
+      name = (name || '').trim();
       if (!name) return;
+      if (wpDecks.value.length >= 8) { flash('最多 8 个分类'); return; }
       await fetch('/api/weakpoints/decks/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      wpNewDeckName.value = '';
       loadWeakpoints();
     }
 
-    async function wpDeckDelete() {
-      if (!wpDeck.value) return;
-      if (!confirm('删除当前分区及其全部卡片？')) return;
-      await fetch('/api/weakpoints/decks/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: wpDeck.value }) });
-      wpDeck.value = '';
+    function wpChipColor(d, i) { return d.color || wpDeckColor(i); }
+    function wpDeckColor(i) {
+      const palette = ['#E8674A', '#4A9B8E', '#B8860B', '#7B5EA7', '#3E7CB1', '#C0563F', '#5E8C61', '#A8542A'];
+      return palette[i % palette.length];
+    }
+    async function wpDeckRename(d) {
+      const name = prompt('新名称', d.name || '');
+      if (!name || !name.trim()) return;
+      await fetch('/api/weakpoints/decks/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: d.id, name: name.trim() }) });
       loadWeakpoints();
+    }
+    async function wpDeckSetColor(d, color) {
+      await fetch('/api/weakpoints/decks/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: d.id, name: d.name, color }) });
+      loadWeakpoints();
+    }
+    async function wpDeckDelete(d) {
+      if (!confirm('删除分类「' + d.name + '」？卡片会退回未分类。')) return;
+      await fetch('/api/weakpoints/decks/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: d.id }) });
+      loadWeakpoints();
+    }
+    function deckColorOf(deckId) {
+      const i = wpDecks.value.findIndex(d => d.id === deckId);
+      return i >= 0 ? wpDeckColor(i) : '';
     }
 
     async function wpToggle(c) {
@@ -695,10 +867,6 @@ createApp({
       loadWeakpoints();
     }
 
-    async function wpMove(c, deck) {
-      await fetch('/api/weakpoints/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id, deck }) });
-      loadWeakpoints();
-    }
 
     function wpPractice(c) {
       send('针对这条薄弱点「' + c.point + '」，给我讲清楚并出一道练习题');
@@ -738,11 +906,31 @@ createApp({
     async function copyText(i) {
       const m = messages.value[i];
       if (!m || !m.text) return;
+      let ok = false;
       try {
-        await navigator.clipboard.writeText(m.text);
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(m.text);
+          ok = true;
+        }
+      } catch(e) {}
+      if (!ok) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = m.text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+        } catch(e) { ok = false; }
+      }
+      if (ok) {
         copiedIdx.value = i;
         setTimeout(() => { copiedIdx.value = -1; }, 1500);
-      } catch(e) {}
+      } else {
+        flash('复制失败，请长按文本手动复制');
+      }
     }
 
     async function reset() {
@@ -758,15 +946,12 @@ createApp({
       try {
         const res = await fetch('/api/sessions');
         const data = await res.json();
-        sessions.value = (data.sessions || []).filter(s => s && s.id).map(s => ({
+        sessions.value = (data.sessions || []).filter(s => s && s.id && (s.turns > 0 || s.title)).map(s => ({
           id: s.id,
-          label: s.id === 'default' ? '默认会话' : (s.id.slice(1, 9) + ' 会话'),
+          label: s.title || (s.id === 'default' ? '默认会话' : (s.id.slice(1, 9) + ' 会话')),
           updated: s.updated,
           turns: s.turns,
         }));
-        if (!sessions.value.some(s => s.id === currentId.value)) {
-          sessions.value.unshift({ id: currentId.value, label: '当前会话', updated: '', turns: 0 });
-        }
       } catch(e) {}
     }
 
@@ -783,17 +968,19 @@ createApp({
     }
 
     async function newSession() {
-      try {
-        const res = await fetch('/api/session/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-        const data = await res.json();
-        currentId.value = data.id || 'default';
-        messages.value = [];
-        error.value = '';
-        stepsOpen.value = {};
-        await loadSessions();
-      } catch(e) {}
+      currentId.value = 's' + Date.now();
+      messages.value = [];
+      error.value = '';
+      stepsOpen.value = {};
+      await loadSessions();
     }
 
+    async function renameSession(s) {
+      const title = prompt('会话名称', s.label || '');
+      if (!title || !title.trim()) return;
+      await fetch('/api/session/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: s.id, title: title.trim() }) });
+      loadSessions();
+    }
     async function switchSession(id) {
       if (id) currentId.value = id;
       try {
@@ -813,6 +1000,7 @@ createApp({
 
     async function deleteSessionById(id) {
       if (!id || id === 'default') return;
+      if (!confirm('删除这个会话？不可恢复。')) return;
       const prev = currentId.value;
       if (id !== prev) {
         await fetch('/api/session/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: prev }) });
@@ -871,6 +1059,44 @@ createApp({
       draft.value = '/' + name + ' ';
       nextTick(() => { inp.value && inp.value.focus(); autoGrow(); });
     }
+    function openDetail(c) {
+      detailCard.value = c;
+      detailForm.value = { id: c.id, point: c.point || '', type: c.type || '', evidence: c.evidence || '', deck: c.deck || '' };
+    }
+    async function detailSave() {
+      const f = detailForm.value;
+      await fetch('/api/weakpoints/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) });
+      detailCard.value = null;
+      loadWeakpoints();
+      flash('卡片已更新');
+    }
+    async function detailDelete() {
+      if (!confirm('删除这张卡片？')) return;
+      await fetch('/api/weakpoints/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: detailForm.value.id }) });
+      detailCard.value = null;
+      loadWeakpoints();
+    }
+    function onDragStart(c, e) {
+      dragId.value = c.id;
+      e.dataTransfer.effectAllowed = 'move';
+    }
+    async function onDropDeck(deckId, e) {
+      e.preventDefault();
+      const c = wpCards.value.find(x => x.id === dragId.value);
+      dragId.value = '';
+      if (!c || (c.deck || '') === (deckId || '')) return;
+      const deckName = (wpDecks.value.find(d => d.id === deckId) || {}).name || '';
+      const body = { id: c.id, deck: deckId };
+      if (['知识点', '易错点', '技巧', '素材'].includes(deckName)) body.type = deckName;
+      if (!deckId) body.type = '';
+      await fetch('/api/weakpoints/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      loadWeakpoints();
+    }
+    async function wpDeckClear(d) {
+      if (!confirm('清空分类「' + d.name + '」的全部卡片？')) return;
+      await fetch('/api/weakpoints/decks/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: d.id }) });
+      loadWeakpoints();
+    }
     function onKeydown(e) {
       if (e.key === 'Tab' && cmdMatches.value.length) {
         e.preventDefault(); applyCommand(cmdMatches.value[0].name); return;
@@ -892,10 +1118,10 @@ createApp({
       inp.value && inp.value.focus();
     });
 
-    return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, switchSession, deleteSession, deleteSessionById, sidebarOpen, toggleSidebar, isNarrow, closeOverlays, me, loadMe, logout,
-    jobId, stopChat, cardsOpen, toggleCards, wpDecks, wpCards, wpStats, wpDeck, wpDraft, wpSuggest, extractingIdx, notice, flash, openPick,
-    commands, cmdMatches, applyCommand, onDraftInput,
-    loadWeakpoints, wpAddManual, wpDeckCreate, wpDeckDelete, wpToggle, wpDelete, wpMove, wpPractice, wpSaveSuggest, savingCard };
+    return { messages, draft, loading, error, inp, scroller, suggestions, send, retrySend, reset, onKeydown, autoGrow, renderIcons, stepsOpen, toggleSteps, renderMarkdown, copyText, copiedIdx, showScrollBtn, onScroll, scrollBottom, loadingHint, sessions, currentId, loadSessions, newSession, renameSession, switchSession, deleteSession, deleteSessionById, sidebarOpen, toggleSidebar, isNarrow, closeOverlays, me, loadMe, logout,
+    jobId, stopChat, cardsOpen, toggleCards, wpDecks, wpCards, wpStats, wpDeck, wpSuggest, wpFiltered, wpSearch, wpAddOpen, wpManage, wpNewPoint, wpNewType, wpNewEv, wpNewDeckName, wpDeckColor, wpChipColor, deckColorOf, sessW, cardsW, startResize, wpDeckSetColor, extractingIdx, notice, flash, openPick,
+    loadWeakpoints, wpAddManual, wpDeckCreate, wpDeckRename, wpDeckDelete, wpDeckClear, wpUpdateType, wpToggle, wpDelete, wpPractice, wpSaveSuggest, savingCard,
+    commands, cmdMatches, applyCommand, onDraftInput, cardsWide, detailCard, detailForm, openDetail, detailSave, detailDelete, onDragStart, onDropDeck };
   }
 }).mount('#app');
 </script>
