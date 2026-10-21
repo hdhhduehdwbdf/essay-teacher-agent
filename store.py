@@ -134,7 +134,8 @@ def init_schema():
 
 
 # 老库补列：uid（稳定用户 id，数据隔离的正式依据）
-_UID_TABLES = ("users", "sessions", "memories", "usage", "jobs", "weak_decks", "weak_cards")
+_UID_TABLES = ("users", "sessions", "memories", "usage", "jobs", "weak_decks", "weak_cards",
+               "essay_tasks", "essay_runs", "essay_steps")
 
 
 def _migrate_uid():
@@ -154,17 +155,25 @@ def _migrate_uid():
         _exec("UPDATE users SET uid=? WHERE username=?", (nxt, r["username"]))
         nxt += 1
     # 历史的会话 / 记忆 / 用量 / 任务 / 卡片按用户名回填 uid
-    for t in ("sessions", "memories", "usage", "jobs", "weak_decks", "weak_cards"):
+    for t in ("sessions", "memories", "usage", "jobs", "weak_decks", "weak_cards",
+              "essay_tasks", "essay_runs", "essay_steps"):
         try:
-            _exec(f"UPDATE {t} SET uid=(SELECT uid FROM users u WHERE u.username={t}.user) WHERE uid IS NULL")
+            _exec(f"UPDATE {t} SET uid=(SELECT uid FROM users u WHERE u.username={t}.user) "
+                  f"WHERE user IN (SELECT username FROM users)")
         except Exception:
             pass
     # 用户已注销但数据还挂着 → 孤儿行直接清掉
-    for t in ("sessions", "memories", "usage", "jobs", "weak_decks", "weak_cards"):
+    for t in ("sessions", "memories", "usage", "jobs", "weak_decks", "weak_cards",
+              "essay_tasks", "essay_runs", "essay_steps"):
         try:
-            _exec(f"DELETE FROM {t} WHERE uid IS NULL")
+            _exec(f"DELETE FROM {t} WHERE uid IS NULL OR user NOT IN (SELECT username FROM users)")
         except Exception:
             pass
+    try:
+        high = _rows("SELECT MAX(uid) AS m FROM users")
+        kv_put("uid_seq", int((high[0]["m"] if high else 0) or 0))
+    except Exception:
+        pass
     try:
         _exec("ALTER TABLE weak_cards ADD COLUMN hits INTEGER DEFAULT 1")
     except Exception:
@@ -189,7 +198,11 @@ def _uw(user):
 
 def _next_uid():
     rows = _rows("SELECT MAX(uid) AS m FROM users")
-    return (int(rows[0]["m"]) if rows and rows[0]["m"] else 0) + 1
+    high = int(rows[0]["m"]) if rows and rows[0]["m"] else 0
+    seq = int(kv_get("uid_seq", 0) or 0)
+    nxt = max(high, seq) + 1
+    kv_put("uid_seq", nxt)
+    return nxt
 
 
 # ---------- 账号 ----------
@@ -569,12 +582,13 @@ def essay_task_create(user, title, prompt, guide="", grade=""):
 
 
 def essay_task_get(user, task_id):
-    rows = _rows("SELECT * FROM essay_tasks WHERE uid=? AND id=?", (_uid(user), task_id))
+    rows = _rows("SELECT * FROM essay_tasks WHERE uid=? AND user=? AND id=?", (_uid(user), user, task_id))
     return rows[0] if rows else None
 
 
 def essay_tasks_list(user):
-    return _rows("SELECT * FROM essay_tasks WHERE uid=? AND active=1 ORDER BY created DESC", (_uid(user),))
+    return _rows("SELECT * FROM essay_tasks WHERE uid=? AND user=? AND active=1 ORDER BY created DESC",
+                 (_uid(user), user))
 
 
 def essay_run_create(user, task_id, code, genre="议论文"):
@@ -586,7 +600,7 @@ def essay_run_create(user, task_id, code, genre="议论文"):
 
 
 def essay_run_get(user, run_id):
-    rows = _rows("SELECT * FROM essay_runs WHERE uid=? AND id=?", (_uid(user), run_id))
+    rows = _rows("SELECT * FROM essay_runs WHERE uid=? AND user=? AND id=?", (_uid(user), user, run_id))
     return rows[0] if rows else None
 
 
@@ -603,8 +617,8 @@ def essay_run_update(user, run_id, **kw):
         args.append(v)
     cols.append("updated=?")
     args.append(time.strftime("%Y-%m-%d %H:%M:%S"))
-    args.extend([_uid(user), run_id])
-    _exec("UPDATE essay_runs SET " + ",".join(cols) + " WHERE uid=? AND id=?", tuple(args))
+    args.extend([_uid(user), user, run_id])
+    _exec("UPDATE essay_runs SET " + ",".join(cols) + " WHERE uid=? AND user=? AND id=?", tuple(args))
     return essay_run_get(user, run_id)
 
 
@@ -617,4 +631,12 @@ def essay_step_add(user, run_id, step, submit_text, diagnosis, gate, reply):
 
 
 def essay_steps_list(user, run_id):
-    return _rows("SELECT * FROM essay_steps WHERE uid=? AND run_id=? ORDER BY step, created", (_uid(user), run_id))
+    return _rows("SELECT * FROM essay_steps WHERE uid=? AND user=? AND run_id=? ORDER BY step, created",
+                 (_uid(user), user, run_id))
+
+
+def essay_purge(user):
+    """注销账号时清理作文题目、打磨会话与过程记录。"""
+    _exec("DELETE FROM essay_steps WHERE user=?", (user,))
+    _exec("DELETE FROM essay_runs WHERE user=?", (user,))
+    _exec("DELETE FROM essay_tasks WHERE user=?", (user,))

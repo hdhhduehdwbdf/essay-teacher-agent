@@ -48,7 +48,8 @@ def enter(user, req):
 
 
 def _parse_gate(reply):
-    matches = re.findall(r"\{[^{}]*\"gate\"[^{}]*\}", reply or "")
+    cleaned = re.sub(r"\```(?:json)?", "", reply or "")
+    matches = re.findall(r"\{[^{}]*\"gate\"[^{}]*\}", cleaned)
     if matches:
         try:
             g = json.loads(matches[-1]).get("gate")
@@ -84,7 +85,7 @@ def _validate_submit(user, req):
 
 
 
-def _rejudge_gate(task, run, step, text, first_reply):
+def _rejudge_gate(task, run, step, text):
     """retry 时的二次复核：独立小调用，两次都说不过才真打回。"""
     try:
         import llm
@@ -93,6 +94,7 @@ def _rejudge_gate(task, run, step, text, first_reply):
         g = _parse_gate((msg.get("content") or "").strip())
         return g if g in ("pass", "retry") else "retry"
     except Exception:
+        print(f"[coach] gate rejudge failed: {type(e).__name__}: {e}")
         return "retry"
 
 def submit_stream(user, req, emit):
@@ -123,9 +125,11 @@ def submit_stream(user, req, emit):
     finally:
         _ACTIVE_RUNS.pop(user, None)
     gate = "pass" if step == 1 else _parse_gate(reply)
-    if gate == "retry":
-        gate = _rejudge_gate(task, run, step, text, reply)
     clean = _strip_gate(reply)
+    if gate == "retry":
+        gate = _rejudge_gate(task, run, step, text)
+        if gate == "pass":
+            clean += "\n\n*（复核判定：经二次确认本环节通过。上面按更严标准的意见仍建议参考，用于继续打磨细节。）*"
     total = coach_rules.total_steps(run)
     store.essay_step_add(user, run["id"], step, text[:8000], json.dumps(
         {"problems": [], "prescription": ""}, ensure_ascii=False), gate, clean)
@@ -171,9 +175,11 @@ def submit(user, req):
         return 502, {"error": "教练暂时离线（LLM 调用失败），请稍后重试：" + type(e).__name__}
 
     gate = "pass" if step == 1 else _parse_gate(reply)
-    if gate == "retry":
-        gate = _rejudge_gate(task, run, step, text, reply)
     clean = _strip_gate(reply)
+    if gate == "retry":
+        gate = _rejudge_gate(task, run, step, text)
+        if gate == "pass":
+            clean += "\n\n*（复核判定：经二次确认本环节通过。原诊断按更严标准给出，仍可参考其处方完善细节。）*"
     total = coach_rules.total_steps(run)
     store.essay_step_add(user, run_id, step, text[:8000], json.dumps(
         {"problems": [], "prescription": ""}, ensure_ascii=False), gate, clean)
@@ -184,7 +190,7 @@ def submit(user, req):
         elif step == total:
             run = store.essay_run_update(user, run_id, step=total, status="done")
             report = _make_report(task, run, steps + [{
-                "step": 7, "submit_text": text, "reply": clean, "gate": "pass"}])
+                "step": total, "submit_text": text, "reply": clean, "gate": "pass"}])
             run = store.essay_run_update(user, run_id, report=report)
         else:
             run = store.essay_run_update(user, run_id, step=step + 1)
@@ -211,6 +217,8 @@ def ask(user, req):
     run = store.essay_run_get(user, run_id)
     if not run:
         return 404, {"error": "打磨会话不存在"}
+    if run["status"] != "active":
+        return 400, {"error": "本轮已结课，请开新一轮后继续提问"}
     task = store.essay_task_get(user, run["task_id"])
     if not task:
         return 404, {"error": "题目不存在"}

@@ -9,7 +9,7 @@ import json
 import os
 import sys
 from io import BytesIO
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 import queue
 import threading
@@ -24,19 +24,25 @@ import worker  # noqa: E402
 FRONTEND = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
 VENDOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor")
 CTYPES = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
-          ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml"}
+          ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".ttf": "font/ttf"}
 
 GET_ROUTES = {
     "/": lambda qs, user: (200, None, "chat.html"),
     "/chat": lambda qs, user: (200, None, "chat.html"),
+    "/system-flow": lambda qs, user: (200, None, "system_flow.html"),
     "/index.html": lambda qs, user: (200, None, "chat.html"),
     "/admin": lambda qs, user: (200, None, "admin.html"),
+    "/admin/login": lambda qs, user: (200, None, "admin_login.html"),
+    "/coach": lambda qs, user: (200, None, "coach.html"),
+    "/api/coach/state": lambda qs, user: api.coach_state(qs, user),
     "/rag": lambda qs, user: (200, None, "rag.html"),
     "/star": lambda qs, user: (200, None, "star.html"),
     "/threads": lambda qs, user: (200, None, "threads.html"),
     "/flows": lambda qs, user: (200, None, "flows.html"),
+    "/architecture": lambda qs, user: (200, None, "architecture.html"),
     "/memory-plan": lambda qs, user: (200, None, "memory_plan.html"),
     "/ops": lambda qs, user: (200, None, "ops.html"),
+    "/optimization-map": lambda qs, user: (200, None, "optimization_map.html"),
     "/api/auth/status": lambda qs, user: (200, api.auth_status(user), None),
     "/api/me": lambda qs, user: (200, api.auth_status(user), None),
     "/api/stats": lambda qs, user: (200, api.stats(user, auth.role(user) == "admin"), None),
@@ -189,6 +195,7 @@ POST_ROUTES = {
     "/api/history/clear": lambda req, user: (200, api.history_clear(user)),
     "/api/session/new": lambda req, user: api.session_new(user, req),
     "/api/session/switch": lambda req, user: api.session_switch(user, req),
+    "/api/session/rename": lambda req, user: api.session_rename(user, req),
     "/api/session/delete": lambda req, user: api.session_delete(user, req),
     "/api/memory/delete": lambda req, user: api.memory_delete(req, user, auth.role(user) == "admin"),
     "/api/memory/clear": lambda req, user: api.memory_clear(req, user, auth.role(user) == "admin"),
@@ -211,6 +218,12 @@ POST_ROUTES = {
     "/api/weakpoints/decks/create": lambda req, user: api.weakpoints_deck_create(req, user),
     "/api/weakpoints/decks/rename": lambda req, user: api.weakpoints_deck_rename(req, user),
     "/api/weakpoints/decks/delete": lambda req, user: api.weakpoints_deck_delete(req, user),
+    "/api/weakpoints/decks/clear": lambda req, user: api.weakpoints_deck_clear(req, user),
+    "/api/coach/enter": lambda req, user: api.coach_enter(req, user),
+    "/api/coach/submit": lambda req, user: api.coach_submit(req, user),
+    "/api/coach/ask": lambda req, user: api.coach_ask(req, user),
+    "/api/coach/task": lambda req, user: api.coach_task_create(req, user),
+    "/api/coach/stop": lambda req, user: api.coach_stop(req, user),
 }
 
 ADMIN_ONLY_POST = ("/api/rebuild", "/api/delete", "/api/files/save", "/api/files/upload",
@@ -241,8 +254,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain; charset=utf-8")
             return
         ext = os.path.splitext(name)[1]
+        cache = "public, max-age=86400" if ext in (".js", ".css", ".woff2", ".svg", ".png") else "no-cache"
         with open(p, "rb") as f:
-            self._send(200, f.read(), CTYPES.get(ext, "application/octet-stream"))
+            self.send_response(200)
+            self.send_header("Content-Type", CTYPES.get(ext, "application/octet-stream"))
+            self.send_header("Cache-Control", cache)
+            body = f.read()
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
     def handle_one_request(self):
         try:
@@ -264,6 +284,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path in ("/login", "/login.html"):
                 self._static("login.html", FRONTEND)
+                return
+            if parsed.path in ("/admin/login", "/admin_login.html"):
+                self._static("admin_login.html", FRONTEND)
                 return
             user = auth.from_headers(self.headers)
             if user is None and parsed.path.startswith("/api/"):
@@ -311,12 +334,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def _chat_gate(self, user):
         """对话前置检查：频率 + 每日额度。返回 True 表示放行。"""
-        if auth.throttled(user):
-            self._json(429, {"error": "请求太频繁，请稍后再试"})
+        throttled, wait_sec = auth.throttled(user)
+        if throttled:
+            self._json(429, {"error": f"请求太频繁，请 {wait_sec} 秒后再试"})
             return False
         ok, used, quota = auth.usage_check(user)
         if not ok:
-            self._json(429, {"error": f"今日额度已用完（{used}/{quota}）"})
+            self._json(429, {"error": f"今日额度已用完（{used}/{quota}），明天自动重置"})
             return False
         return True
 
@@ -336,6 +360,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             api.chat_stream(req, user, lambda ev: self._sse(ev))
+        except Exception as e:
+            try:
+                self._sse({"type": "error", "error": f"{type(e).__name__}: {e}"})
+            except Exception:
+                pass
+
+    def _coach_stream_post(self, req, user):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        try:
+            api.coach_stream(req, user, lambda ev: self._sse(ev))
         except Exception as e:
             try:
                 self._sse({"type": "error", "error": f"{type(e).__name__}: {e}"})
@@ -368,6 +405,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/chat/stream":
                 self._chat_stream_post(req, user)
+                return
+            if path == "/api/coach/stream":
+                self._coach_stream_post(req, user)
                 return
             fn = POST_ROUTES.get(path)
             if not fn:
@@ -432,9 +472,10 @@ if __name__ == "__main__":
     try:
         from waitress import serve
     except ImportError:
-        HTTPServer.allow_reuse_address = False
-        print(f"叁月聚粮分身 · 前后端分离版已启动（http.server 开发模式）→ http://{host}:{port}")
-        HTTPServer((host, port), Handler).serve_forever()
+        ThreadingHTTPServer.allow_reuse_address = False
+        ThreadingHTTPServer.daemon_threads = True
+        print(f"叁月聚粮分身 · 前后端分离版已启动（多线程 http.server 模式）→ http://{host}:{port}")
+        ThreadingHTTPServer((host, port), Handler).serve_forever()
     else:
         threads = int(os.environ.get("THREADS", "8"))
         print(f"叁月聚粮分身 · 已启动（waitress 生产模式，{threads} 线程）→ http://{host}:{port}")

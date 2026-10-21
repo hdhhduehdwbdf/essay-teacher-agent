@@ -134,6 +134,7 @@ def _purge_user_data(username):
         store.usage_purge(username)
         store.jobs_purge(username)
         store.cards_clear(username)
+        store.essay_purge(username)
         store.kv_del_prefix(f"cur:{username}")
         store.user_delete(username)
 
@@ -257,7 +258,8 @@ def throttled(username):
         now = time.time()
         last = _THROTTLE.get(username, 0)
         _THROTTLE[username] = now
-        return (now - last) < THROTTLE_INTERVAL
+        remaining = THROTTLE_INTERVAL - (now - last)
+        return (True, int(remaining) + 1) if remaining > 0 else (False, 0)
 
 
 def usage_check(username):

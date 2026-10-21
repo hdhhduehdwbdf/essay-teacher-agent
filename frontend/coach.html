@@ -229,6 +229,10 @@
               </p>
               <textarea v-model="draft" rows="8" @keydown.ctrl.enter.prevent="smartSend" :placeholder="run.step === 1 ? '把你的作文初稿全文粘贴到这里（含标题）…' : '直接粘贴环节内容即提交；想提问就直接说（如“这句怎么改”）；写文章内容则自动提交诊断；可加【提问】/【提交】前缀强制指定'"
                 class="mt-2 w-full resize-y rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-[13.5px] leading-7"></textarea>
+              <div class="mt-1 flex justify-between text-[11px] text-[var(--ink-faint)]">
+                <span title="长文默认按提交诊断；问句/短句默认按提问；可用【提问】或【提交】强制指定。">自动识别：{{ sendMode === 'ask' ? '提问' : '提交诊断' }}</span>
+                <span>{{ draft.trim().length }} 字</span>
+              </div>
               <div class="mt-2 flex items-center gap-2 flex-wrap">
                 <button @click="smartSend" :disabled="!draft.trim() || busy"
                   class="btn-pop inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-40" style="background:var(--accent)">
@@ -295,9 +299,12 @@ createApp({
   setup() {
     const meta = ref([]);
     const genre = ref('议论文');
+    const ARG_FALLBACK = ['交一稿 · 全文诊断', '审题', '分论点关系', '分论点表述', '分论点阐释', '叙例与析例', '总结句与结课'];
+    const NAR_FALLBACK = ['交一稿 · 全文诊断', '审题', '选材与立意', '篇章结构', '叙述与描写 + 结课'];
     const stepDefs = computed(() => {
       const names = (meta.value || []).map(m => m.name);
-      return names.length ? names : ['交一稿 · 全文诊断', '审题', '分论点关系', '分论点表述', '分论点阐释', '叙例与析例', '总结句与结课'];
+      if (names.length) return names;
+      return ((run.value && run.value.genre) || genre.value) === '记叙文' ? NAR_FALLBACK : ARG_FALLBACK;
     });
     const hints = {
       1: '把你的作文初稿全文粘贴发我（含标题）。我会做整体诊断并建立主稿。',
@@ -307,6 +314,13 @@ createApp({
       5: '把每个分论点下面的阐释段落发我（一段一段标清楚）。',
       6: '发你文中用到的例子段落，每个例子标注它服务哪个分论点。',
       7: '发你的总结段（结尾段）。'
+    };
+    const narrHints = {
+      1: '把你的作文初稿全文粘贴发我（含标题）。我会做整体诊断并建立主稿。',
+      2: '说清这道题让你想到的核心事件、命题要求，以及你准备选的真实素材。',
+      3: '写清你要记的事件梗概，和这件事自然生长出来的立意。',
+      4: '发你的结构提纲：开头怎么入题、事件按什么顺序讲、哪里详写哪里略写、结尾停在哪。',
+      5: '把你改好的关键段落（最好含最想写好的那个场景）发我，我看完就出结课报告。'
     };
     const loading = ref(true), busy = ref(false);
     const tasks = ref([]), run = ref(null), task = ref(null), steps = ref([]);
@@ -331,9 +345,10 @@ createApp({
     const progressPct = computed(() => {
       if (!run.value || !stepDefs.value.length) return 0;
       if (run.value.status === 'done') return 100;
-      return Math.round(((run.value.step - 1) / stepDefs.value.length) * 100);
+      return Math.min(100, Math.round((run.value.step / stepDefs.value.length) * 100));
     });
     function celebrate() {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       const icons = ['🎉','⭐','🎊','✨','🏅','🎈'];
       for (let i = 0; i < 14; i++) {
         const el = document.createElement('div');
@@ -348,7 +363,8 @@ createApp({
     const currentHint = computed(() => {
       const st = run.value && run.value.step;
       const m = meta.value.find(x => x.step === st);
-      return (m && m.submit_hint) || (st ? (hints[st] || '') : '');
+      const activeGenre = (run.value && run.value.genre) || genre.value;
+      return (m && m.submit_hint) || (st ? ((activeGenre === '记叙文' ? narrHints[st] : hints[st]) || '') : '');
     });
     const currentCriteria = computed(() => {
       const st = run.value && run.value.step;
@@ -398,7 +414,7 @@ createApp({
     async function enter() {
       busy.value = true;
       try {
-        const d = await fetch('/api/coach/enter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+        const d = await fetch('/api/coach/enter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ genre: genre.value }) }).then(r => r.json());
         if (d.ok) await load(); else showToast(d.error || '开始失败');
       } finally { busy.value = false; }
     }
@@ -409,6 +425,11 @@ createApp({
       try {
         const res = await fetch('/api/coach/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ run_id: run.value.id, text: draft.value }) });
+        if (!(res.headers.get('content-type') || '').includes('text/event-stream')) {
+          const d = await res.json().catch(() => ({}));
+          showToast(d.error || `诊断失败（HTTP ${res.status}）`);
+          return;
+        }
         const reader = res.body.getReader();
         const dec = new TextDecoder();
         let buf = '';
@@ -424,7 +445,7 @@ createApp({
             let ev;
             try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
             if (ev.type === 'delta') streamText.value += ev.text;
-            else if (ev.type === 'done') { streamText.value = ''; draft.value = ''; if (ev.payload && ev.payload.gate === 'pass') celebrate(); await load(); if (queuedAsk) { const q = queuedAsk; queuedAsk = ''; await sendAsk(q); } }
+            else if (ev.type === 'done') { streamText.value = ''; draft.value = ''; if (ev.payload && ev.payload.gate === 'pass') celebrate(); await load(); while (queuedAsks.length) { const q = queuedAsks.shift(); await sendAsk(q); } }
             else if (ev.type === 'error') {
               streamText.value = '';
               if (String(ev.error || '').includes('已停止')) { await load(); }
@@ -440,7 +461,7 @@ createApp({
       }
       finally { busy.value = false; streamText.value = ''; }
     }
-    let queuedAsk = '';
+    const queuedAsks = [];
     function detectMode(raw) {
       const t = raw.trim();
       if (/^【提问】/.test(t)) return { mode: 'ask', text: t.replace(/^【提问】\s*/, '') };
@@ -460,7 +481,7 @@ createApp({
       if (!text.trim()) { showToast('去掉标记后内容为空'); return; }
       draft.value = text;
       if (mode === 'ask') {
-        if (busy.value) { queuedAsk = text; draft.value = ''; showToast('诊断完成后自动提问'); return; }
+        if (busy.value) { queuedAsks.push(text); draft.value = ''; showToast('诊断完成后自动提问'); return; }
         await sendAsk(text);
       } else {
         await submit();
@@ -470,15 +491,16 @@ createApp({
       if (!q || busyAsk.value) return;
       busyAsk.value = true;
       try {
-        const d = await fetch('/api/coach/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ run_id: run.value.id, question: q }) }).then(r => r.json());
+        const res = await fetch('/api/coach/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ run_id: run.value.id, question: q }) });
+        const d = await res.json().catch(() => ({}));
         if (d.ok) { draft.value = ''; await load(); } else { draft.value = q; showToast(d.error || '提问失败'); }
       } finally { busyAsk.value = false; }
     }
     async function newRound() {
       busy.value = true;
       try {
-        const d = await fetch('/api/coach/enter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+        const d = await fetch('/api/coach/enter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ genre: genre.value }) }).then(r => r.json());
         if (d.ok) { showRestart.value = false; showDraft.value = false; showDoc.value = false; await load(); } else showToast(d.error || '开新一轮失败');
       } finally { busy.value = false; }
     }
@@ -509,7 +531,7 @@ createApp({
     }
     onMounted(load);
     function renderMd(t) { return window.renderMarkdown(t); }
-    return { stepDefs, loading, busy, tasks, run, task, steps, rulesVersion, isAdmin, draft, tTitle, tPrompt, tGuide, tGrade, taskMsg, showDraft, showRestart, showDoc, lastGate, newRound, taskFold, renderMd, streamText, ask, busyAsk, currentCriteria, scrollBottom, sidebarW, startResize, sidebarOpen, toast, showToast,
+    return { stepDefs, loading, busy, tasks, run, task, steps, rulesVersion, isAdmin, draft, tTitle, tPrompt, tGuide, tGrade, taskMsg, showDraft, showRestart, showDoc, lastGate, newRound, taskFold, renderMd, streamText, busyAsk, currentCriteria, scrollBottom, sidebarW, startResize, sidebarOpen, toast, showToast,
       currentHint, stepDone, stepMark, printReport, load, enter, submit, createTask, stopSubmit, genre, switchGenre, progressPct, celebrate, smartSend, sendMode };
   }
 }).mount('#app');
